@@ -17,8 +17,10 @@ import yaml
 from loguru import logger
 
 from quant.data.akshare_feed import AKShareFeed
+from quant.data.baostock_feed import BaostockFeed
 from quant.data.csv_feed import CSVFeed
 from quant.data.tdx_feed import TDXFeed
+from quant.data.tushare_feed import TuShareFeed
 from quant.engine.backtest import BacktestEngine
 from quant.execution.simulated import SimulatedBroker
 from quant.risk.basic import BasicRiskManager
@@ -51,18 +53,19 @@ def load_config(path: str) -> dict:
 
 def build_feed(cfg: dict):
     source = cfg["data"]["source"]
+    common = dict(
+        start_date=cfg["data"]["start_date"],
+        end_date=cfg["data"]["end_date"],
+        use_cache=cfg["data"].get("use_cache", True),
+    )
     if source == "akshare":
-        feed = AKShareFeed(
-            start_date=cfg["data"]["start_date"],
-            end_date=cfg["data"]["end_date"],
-            use_cache=cfg["data"].get("use_cache", True),
-        )
+        feed = AKShareFeed(**common)
+    elif source == "baostock":
+        feed = BaostockFeed(**common)
     elif source == "tdx":
-        feed = TDXFeed(
-            start_date=cfg["data"]["start_date"],
-            end_date=cfg["data"]["end_date"],
-            use_cache=cfg["data"].get("use_cache", True),
-        )
+        feed = TDXFeed(**common)
+    elif source == "tushare":
+        feed = TuShareFeed(**common)
     elif source == "csv":
         feed = CSVFeed(csv_dir=cfg["data"]["csv_dir"])
     else:

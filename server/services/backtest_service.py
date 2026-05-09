@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from quant.data.akshare_feed import AKShareFeed
+from quant.data.baostock_feed import BaostockFeed
 from quant.data.tushare_feed import TuShareFeed
 from quant.engine.backtest import BacktestEngine
 from quant.execution.simulated import SimulatedBroker
@@ -151,21 +152,23 @@ def run_backtest(req: BacktestRequest) -> BacktestResult:
     if registry_entry is None:
         raise ValueError(f"Unknown strategy: {req.strategy}")
 
-    # Build components — prefer TuShare, fallback to AKShare
-    try:
-        feed = TuShareFeed(
-            start_date=req.start_date,
-            end_date=req.end_date,
-            use_cache=True,
-        )
-        feed.subscribe(req.symbols)
-    except Exception:
-        feed = AKShareFeed(
-            start_date=req.start_date,
-            end_date=req.end_date,
-            use_cache=True,
-        )
-        feed.subscribe(req.symbols)
+    # Build components — fallback 链 TuShare -> Baostock -> AKShare
+    feed = None
+    last_err: Exception | None = None
+    for cls in (TuShareFeed, BaostockFeed, AKShareFeed):
+        try:
+            feed = cls(
+                start_date=req.start_date,
+                end_date=req.end_date,
+                use_cache=True,
+            )
+            feed.subscribe(req.symbols)
+            break
+        except Exception as e:
+            last_err = e
+            feed = None
+    if feed is None:
+        raise RuntimeError(f"All data sources failed; last error: {last_err}")
 
     strategy_cls = registry_entry["cls"]
     strategy = strategy_cls(params=req.strategy_params or {})

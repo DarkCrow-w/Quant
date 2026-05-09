@@ -79,7 +79,26 @@
       "WebSearch",
       "Bash(pip install:*)",
       "Bash(npm install:*)",
-      "Bash(pip index:*)"
+      "Bash(pip index:*)",
+      "Bash(/root/quant/.venv/bin/python -V)",
+      "Bash(/root/quant/.venv/bin/python -m pip install baostock tickflow)",
+      "Bash(/root/quant/.venv/bin/python *)",
+      "Bash(timeout 1500 ./.venv/bin/python *)",
+      "Bash(ps -eo pid,etime,cmd)",
+      "Bash(kill 3771 3774)",
+      "Bash(timeout 1100 ./.venv/bin/python *)",
+      "Bash(xargs -I{} python3 -c \"import pandas as pd; df=pd.read_parquet\\('{}'\\); print\\('{}', len\\(df\\), df['dt'].min\\(\\), df['dt'].max\\(\\), df.dtypes.to_dict\\(\\)\\)\")",
+      "Bash(./.venv/bin/python -c ' *)",
+      "Bash(python -m pytest tests/data/test_phase1.py -x -v)",
+      "Bash(.venv/bin/python -m pytest tests/data/test_phase1.py -x -v)",
+      "Bash(.venv/bin/python -m pytest tests/data/test_phase1.py -x)",
+      "Bash(.venv/bin/python -m pytest tests/ -x)",
+      "Bash(.venv/bin/python *)",
+      "Bash(./.venv/bin/python run_backtest.py -s 600519 --start 2024-01-01 --end 2024-06-30 --no-report)",
+      "Bash(./.venv/bin/python *)",
+      "Bash(awk '{print $1}')",
+      "Bash(xargs -r kill)",
+      "Bash(xargs -I{} basename {} .parquet)"
     ]
   }
 }
