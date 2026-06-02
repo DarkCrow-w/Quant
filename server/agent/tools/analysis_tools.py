@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
 
 from server.services.market_service import get_kline
+from server.agent.tools.market_tools import (
+    _effective_end_date,
+    _resolve_symbol,
+)
 
 
 def _compute_ma(closes: list[float], period: int) -> list[float | None]:
@@ -40,20 +45,24 @@ def analyze_technicals_tool(
     symbol: str,
     start_date: str,
     end_date: str,
+    use_latest: bool = True,
 ) -> str:
     """计算股票的技术指标：MA5/MA10/MA20/MA60、KDJ、BBI、成交量均线。
 
     Args:
-        symbol: 股票代码
+        symbol: 股票代码或中文名称
         start_date: 开始日期 YYYY-MM-DD
         end_date: 结束日期 YYYY-MM-DD
+        use_latest: 默认 true，使用本地最新交易日；历史截面分析时设为 false
 
     Returns:
         技术指标摘要的 JSON 字符串（最近 10 个交易日的指标值）
     """
-    bars = get_kline(symbol, start_date, end_date)
+    code, resolved = _resolve_symbol(symbol)
+    effective_end = _effective_end_date(code, end_date, use_latest)
+    bars = get_kline(code, start_date, effective_end)
     if not bars:
-        return json.dumps({"error": f"未找到 {symbol} 的数据"}, ensure_ascii=False)
+        return json.dumps({"error": f"未找到 {code} 的数据"}, ensure_ascii=False)
 
     closes = [b.close for b in bars]
     highs = [b.high for b in bars]
@@ -115,8 +124,13 @@ def analyze_technicals_tool(
         trend_signals.append("收盘价在BBI下方(偏空)")
 
     output = {
-        "symbol": symbol,
+        "symbol": code,
+        "name": resolved.get("name", ""),
         "total_bars": len(bars),
+        "requested_date_range": f"{start_date} ~ {end_date}",
+        "effective_date_range": f"{start_date} ~ {effective_end}",
+        "data_as_of": bars[-1].dt,
+        "use_latest": use_latest,
         "recent_indicators": recent,
         "trend_signals": trend_signals,
     }
