@@ -12,6 +12,7 @@ class ClientMessage(BaseModel):
     type: str = "message"
     session_id: str | None = None
     content: str = ""
+    agent_mode: str = "auto"
     images: list[dict] | None = None  # [{"data": "base64...", "media_type": "image/png"}]
 
 
@@ -34,6 +35,7 @@ class ChatRequest(BaseModel):
     """非流式聊天请求。"""
     session_id: str | None = None
     content: str
+    agent_mode: str = "auto"
     images: list[dict] | None = None
 
 
