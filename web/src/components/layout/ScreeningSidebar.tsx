@@ -1,10 +1,26 @@
 import { useEffect } from 'react';
-import { Button, Collapse, DatePicker, InputNumber, Select, Space, Typography } from 'antd';
 import {
-  CaretRightOutlined,
-  ExperimentOutlined,
+  Button,
+  Collapse,
+  DatePicker,
+  InputNumber,
+  Popconfirm,
+  Segmented,
+  Select,
+  Slider,
+  Space,
+  Switch,
+  Typography,
+} from 'antd';
+import {
   CalendarOutlined,
+  CaretRightOutlined,
+  DeleteOutlined,
+  ExperimentOutlined,
+  FilterOutlined,
+  PlusOutlined,
   SearchOutlined,
+  SlidersOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useScreeningStore } from '../../stores/screening';
@@ -14,8 +30,8 @@ const { Text } = Typography;
 const labelStyle: React.CSSProperties = {
   color: '#848e9c',
   fontSize: 11,
-  textTransform: 'uppercase' as const,
-  letterSpacing: '0.5px',
+  textTransform: 'uppercase',
+  letterSpacing: 0,
   marginBottom: 4,
   display: 'block',
 };
@@ -34,12 +50,130 @@ export default function ScreeningSidebar() {
 
   useEffect(() => {
     store.loadStrategies();
+    store.loadFactorDefs();
+    store.loadComposer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const currentStrategy = store.strategies.find((s) => s.name === store.strategy);
+  const currentStrategy = store.strategies.find((item) => item.name === store.strategy);
+  const isComposer = store.mode === 'composer';
+  const isScore = store.mode === 'score';
 
-  const collapseItems = [
+  const dateItem = {
+    key: 'date',
+    label: <SectionHeader icon={<CalendarOutlined />} title="选股日期" />,
+    children: (
+      <div>
+        <Text style={labelStyle}>扫描截止日</Text>
+        <DatePicker
+          style={{ width: '100%' }}
+          size="small"
+          value={dayjs(store.scanDate)}
+          onChange={(value) =>
+            value && store.setField('scanDate', value.format('YYYY-MM-DD'))
+          }
+        />
+      </div>
+    ),
+  };
+
+  const composerItems = [
+    {
+      key: 'library',
+      label: <SectionHeader icon={<ExperimentOutlined />} title="策略库" />,
+      children: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Select
+            style={{ width: '100%' }}
+            size="small"
+            placeholder="选择已保存策略"
+            value={store.activeFactorStrategyId ?? undefined}
+            options={store.factorStrategies.map((strategy) => ({
+              value: strategy.id,
+              label: strategy.name,
+            }))}
+            onChange={store.selectFactorStrategy}
+            notFoundContent="还没有已保存策略"
+          />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 6 }}>
+            <Button
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={store.newFactorStrategy}
+            >
+              新建组合策略
+            </Button>
+            <Popconfirm
+              title="删除当前策略？"
+              disabled={!store.activeFactorStrategyId}
+              onConfirm={store.removeFactorStrategy}
+            >
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={!store.activeFactorStrategyId}
+                aria-label="删除当前策略"
+              />
+            </Popconfirm>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'execution',
+      label: <SectionHeader icon={<SlidersOutlined />} title="运行设置" />,
+      children: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <Text style={labelStyle}>最小综合分</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={0}
+              max={100}
+              addonAfter="分"
+              value={store.composerDraft.min_score}
+              onChange={(value) =>
+                store.updateComposerDraft({ min_score: value ?? 0 })
+              }
+            />
+          </div>
+          <div>
+            <Text style={labelStyle}>历史计算窗口</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={30}
+              max={1500}
+              addonAfter="日"
+              value={store.composerDraft.lookback}
+              onChange={(value) =>
+                store.updateComposerDraft({ lookback: value ?? 250 })
+              }
+            />
+          </div>
+          <div>
+            <Text style={labelStyle}>返回数量</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={1}
+              max={1000}
+              addonAfter="只"
+              value={store.composerDraft.top_n}
+              onChange={(value) =>
+                store.updateComposerDraft({ top_n: value ?? 100 })
+              }
+            />
+          </div>
+        </div>
+      ),
+    },
+    dateItem,
+  ];
+
+  const signalItems = [
     {
       key: 'strategy',
       label: <SectionHeader icon={<ExperimentOutlined />} title="策略配置" />,
@@ -50,32 +184,73 @@ export default function ScreeningSidebar() {
             <Select
               style={{ width: '100%' }}
               value={store.strategy}
-              onChange={(v) => {
-                store.setField('strategy', v);
-                const strat = store.strategies.find((s) => s.name === v);
-                if (strat) {
-                  const params: Record<string, number> = {};
-                  strat.params_schema.forEach((p) => {
-                    params[p.name] = p.default;
-                  });
-                  store.setField('strategyParams', params);
-                }
+              onChange={(value) => {
+                store.setField('strategy', value);
+                const selected = store.strategies.find((item) => item.name === value);
+                if (!selected) return;
+                store.setField(
+                  'strategyParams',
+                  Object.fromEntries(
+                    selected.params_schema.map((param) => [param.name, param.default]),
+                  ),
+                );
               }}
-              options={store.strategies.map((s) => ({ value: s.name, label: s.display_name }))}
+              options={store.strategies.map((strategy) => ({
+                value: strategy.name,
+                label: strategy.display_name,
+              }))}
               size="small"
             />
           </div>
-          {currentStrategy?.params_schema.map((p) => (
-            <div key={p.name}>
-              <Text style={labelStyle}>{p.label}</Text>
+          {currentStrategy?.params_schema.map((param) => (
+            <div key={param.name}>
+              <Text style={labelStyle}>{param.label}</Text>
               <InputNumber
                 style={{ width: '100%' }}
                 size="small"
-                min={p.min}
-                max={p.max}
-                step={p.type === 'float' ? 0.1 : 1}
-                value={store.strategyParams[p.name] ?? p.default}
-                onChange={(v) => v !== null && store.setStrategyParam(p.name, v)}
+                min={param.min}
+                max={param.max}
+                step={param.type === 'float' ? 0.1 : 1}
+                value={store.strategyParams[param.name] ?? param.default}
+                onChange={(value) =>
+                  value !== null && store.setStrategyParam(param.name, value)
+                }
+              />
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    dateItem,
+  ];
+
+  const scoreItems = [
+    {
+      key: 'weights',
+      label: <SectionHeader icon={<SlidersOutlined />} title="因子权重" />,
+      children: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {store.factorDefs.map((factor) => (
+            <div key={factor.key}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                }}
+              >
+                <Text style={{ ...labelStyle, marginBottom: 0 }} title={factor.desc}>
+                  {factor.label}
+                </Text>
+                <span className="mono" style={{ color: '#eaecef', fontSize: 11 }}>
+                  {store.weights[factor.key] ?? 0}
+                </span>
+              </div>
+              <Slider
+                min={0}
+                max={100}
+                value={store.weights[factor.key] ?? 0}
+                onChange={(value) => store.setWeight(factor.key, value)}
               />
             </div>
           ))}
@@ -83,54 +258,123 @@ export default function ScreeningSidebar() {
       ),
     },
     {
-      key: 'date',
-      label: <SectionHeader icon={<CalendarOutlined />} title="选股日期" />,
+      key: 'filters',
+      label: <SectionHeader icon={<FilterOutlined />} title="过滤条件" />,
       children: (
-        <div>
-          <Text style={labelStyle}>扫描截止日</Text>
-          <DatePicker
-            style={{ width: '100%' }}
-            size="small"
-            value={dayjs(store.scanDate)}
-            onChange={(d) => d && store.setField('scanDate', d.format('YYYY-MM-DD'))}
-          />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="sidebar-switch-row">
+            <Text style={{ ...labelStyle, marginBottom: 0 }}>排除蜈蚣图</Text>
+            <Switch
+              size="small"
+              checked={store.exclude_centipede}
+              onChange={(value) => store.setField('exclude_centipede', value)}
+            />
+          </div>
+          <div className="sidebar-switch-row">
+            <Text style={{ ...labelStyle, marginBottom: 0 }}>启用形态分析</Text>
+            <Switch
+              size="small"
+              checked={store.use_patterns}
+              onChange={(value) => store.setField('use_patterns', value)}
+            />
+          </div>
+          <div>
+            <Text style={labelStyle}>最低沙漏分</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={0}
+              max={100}
+              value={store.min_sandglass}
+              onChange={(value) => store.setField('min_sandglass', value ?? 0)}
+            />
+          </div>
+          <div>
+            <Text style={labelStyle}>最小成交额（万元）</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={0}
+              step={1000}
+              value={store.min_amount / 1e4}
+              onChange={(value) => store.setField('min_amount', (value ?? 0) * 1e4)}
+            />
+          </div>
+          <div>
+            <Text style={labelStyle}>返回数量</Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              size="small"
+              min={1}
+              max={1000}
+              value={store.topN}
+              onChange={(value) => store.setField('topN', value ?? 100)}
+            />
+          </div>
         </div>
       ),
     },
+    dateItem,
   ];
 
+  const items = isComposer ? composerItems : isScore ? scoreItems : signalItems;
+  const activeKeys = isComposer
+    ? ['library', 'execution', 'date']
+    : isScore
+      ? ['weights', 'filters', 'date']
+      : ['strategy', 'date'];
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>
+    <div className="sidebar-shell">
+      <div className="sidebar-context">
+        <small>ALPHA SCANNER</small>
+        <strong>智能选股</strong>
+        <p>组合技术指标、量价与形态条件，建立可复用的选股策略。</p>
+      </div>
+      <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid var(--border-light)' }}>
+        <Text style={labelStyle}>选股模式</Text>
+        <Segmented
+          block
+          size="small"
+          value={store.mode}
+          onChange={(value) =>
+            store.setMode(value as 'composer' | 'signal' | 'score')
+          }
+          options={[
+            { label: '策略组合', value: 'composer' },
+            { label: '因子评分', value: 'score' },
+            { label: '经典信号', value: 'signal' },
+          ]}
+        />
+      </div>
+      <div className="sidebar-scroll">
         <Collapse
-          items={collapseItems}
-          defaultActiveKey={['strategy', 'date']}
+          key={store.mode}
+          items={items}
+          defaultActiveKey={activeKeys}
           ghost
           size="small"
           expandIcon={({ isActive }) => (
-            <CaretRightOutlined rotate={isActive ? 90 : 0} style={{ color: '#5e6673', fontSize: 10 }} />
+            <CaretRightOutlined
+              rotate={isActive ? 90 : 0}
+              style={{ color: '#5e6673', fontSize: 10 }}
+            />
           )}
           style={{ background: 'transparent' }}
         />
       </div>
-      <div style={{ padding: '12px 16px', borderTop: '1px solid #1e2126' }}>
+      <div className="sidebar-footer">
         <Button
           type="primary"
           size="middle"
           block
           icon={<SearchOutlined />}
-          loading={store.loading}
-          onClick={store.scan}
-          style={{
-            height: 36,
-            fontWeight: 600,
-            fontSize: 13,
-            background: 'linear-gradient(135deg, #1890ff 0%, #722ed1 100%)',
-            border: 'none',
-            borderRadius: 6,
-          }}
+          loading={isComposer ? store.composerRunning : store.loading}
+          onClick={() =>
+            isComposer ? store.runComposer() : isScore ? store.runScore() : store.scan()
+          }
         >
-          {store.loading ? '选股中...' : '开始选股'}
+          {isComposer ? '运行组合策略' : '开始选股'}
         </Button>
       </div>
     </div>
