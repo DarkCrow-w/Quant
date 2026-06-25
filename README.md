@@ -101,7 +101,7 @@ start-windows.cmd
 ├─ server/routers/      路由定义
 ├─ server/services/     业务编排
 ├─ server/models/       请求与响应模型
-└─ server/agent/        LangGraph Agent（当前主入口里未挂载）
+└─ server/agent/        LangGraph Agent（无 API Key 时保持只读状态）
 
 量化内核
 ├─ quant/core/          Bar、Signal、Order、Fill、Portfolio 等基础对象
@@ -175,10 +175,17 @@ FastAPI 服务入口，当前挂载了：
 
 1. `/api/backtest`
 2. `/api/strategy`
-3. `/api/market`
-4. `/api/screening`
+3. `/api/strategy/assets`
+4. `/api/market`
+5. `/api/screening`
+6. `/api/factors`
+7. `/api/risk`
+8. `/api/system`
+9. `/api/trading`
+10. `/api/research`
+11. `/api/agent`
 
-`/api/agent` 路由在代码里存在，但主入口里暂时注释掉了。
+Agent 路由会随主入口加载；没有配置模型 API Key 时，状态接口仍可用，聊天能力会显示未配置。
 
 ## 4. 量化内核：`quant/`
 
@@ -320,7 +327,7 @@ FastAPI 服务入口，当前挂载了：
 
 这一层是 LangGraph Agent 相关实现，包含图编排、记忆、提示词、工具和 WebSocket/REST 路由。
 
-当前主入口里它被注释掉了，所以它更像是一个预留的智能助手能力模块，而不是默认启用的主流程。
+主入口会尝试挂载 Agent 路由。没有安装依赖或没有配置模型 API Key 时，`/api/agent/status` 会返回原因，其他核心量化功能不受影响。
 
 ### 5.6 接口清单
 
@@ -440,7 +447,7 @@ FastAPI 服务入口，当前挂载了：
 
 ## 9. 现状备注
 
-1. `server/agent/router.py` 已经存在，但 `server/main.py` 里还是注释状态，说明 Agent 能力还没作为默认 API 暴露。
+1. Agent 路由已经接入主入口；模型 Key 未配置时页面会显示未启用，但不影响数据、回测、策略、因子和风控模块。
 2. 项目里同时存在 `app.py` 和 `web/` 两套前端入口，前者适合本地快速回测，后者适合完整平台使用。
 3. 数据缓存走本地 `data/*.parquet`，所以很多查询和选股逻辑都依赖先把行情缓存下来。
 
@@ -457,7 +464,7 @@ FastAPI 服务入口，当前挂载了：
 ### 10.2 只启动后端 API
 
 ```bash
-uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn server.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 ### 10.3 只启动前端

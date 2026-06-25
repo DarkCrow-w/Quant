@@ -185,7 +185,7 @@ DataStore 的职责：
 - `server.routers.market`
 - `server.routers.screening`
 
-Agent 路由存在于 `server/agent/router.py`，但在 `server/main.py` 中被注释，当前默认不会暴露 `/api/agent`。
+Agent 路由存在于 `server/agent/router.py`，并由 `server/main.py` 尝试挂载。没有安装 Agent 依赖或没有配置模型 API Key 时，`/api/agent/status` 会返回不可用原因，核心量化 API 不受影响。
 
 ### 5.1 主要 API
 
@@ -273,7 +273,7 @@ API：
 注意：
 
 - `ScreeningStore` 当前默认 `mode: "score"`，也就是多因子评分选股是默认入口。
-- `AgentPage` 和相关前端组件已经存在，但后端 Agent 路由未挂载，直接使用会遇到 API 不通。
+- `AgentPage` 和相关前端组件已经接入后端 Agent 路由；未配置模型 API Key 时页面会展示未启用状态。
 
 ## 7. 关键执行链路
 
@@ -419,7 +419,7 @@ from quant.data import StoreFeed
 后端：
 
 ```bash
-uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn server.main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 前端：
@@ -461,7 +461,7 @@ pnpm lint
 ## 10. 当前注意点
 
 1. 外层 `quantlab` 不是 Git 仓库，`quant/` 自己是 Git 仓库；在 Windows/WSL UNC 路径下执行 `git status` 可能触发 safe.directory 限制。
-2. Agent 后端未挂载，但前端已有 Agent 页面和 API 封装。
+2. Agent 后端已挂载；模型 Key 未配置时仅 Agent 对话不可用，其他模块可继续使用。
 3. 回测服务仍走旧 feed，选股与行情主要走 DataStore，数据路径尚未完全统一。
 4. `run_backtest.py` 与 `run_live.py` 的策略映射比后端少。
 5. 部分源码注释或中文标签在当前终端读取时可能出现乱码，修改中文文案前应先确认文件真实编码。
