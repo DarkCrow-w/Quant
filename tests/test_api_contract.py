@@ -82,6 +82,159 @@ def test_trading_status_contract_is_read_only_and_manual_start():
         assert checks[key]["level"] in {"ok", "warning", "error"}
 
 
+def test_market_data_contract_exposes_cache_universe_and_series(monkeypatch):
+    from server.routers import market as market_router
+    from quant.data import updater as data_updater
+
+    monkeypatch.setattr(
+        market_router,
+        "get_kline",
+        lambda symbol, start_date, end_date, freq="day": [
+            {
+                "dt": "2024-01-02",
+                "open": 10,
+                "high": 11,
+                "low": 9.8,
+                "close": 10.5,
+                "volume": 100000,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        market_router,
+        "get_indicator",
+        lambda symbol, name, start_date, end_date, freq="day": [
+            {"dt": "2024-01-02", "MA5": 10.2}
+        ],
+    )
+    monkeypatch.setattr(
+        market_router,
+        "get_universe",
+        lambda market=None: [
+            {"symbol": "600000", "name": "浦发银行", "market": "SH"}
+        ],
+    )
+    monkeypatch.setattr(
+        market_router,
+        "get_calendar",
+        lambda start=None, end=None: [
+            {"dt": "2024-01-02", "is_open": True}
+        ],
+    )
+    monkeypatch.setattr(
+        market_router,
+        "get_cache_status",
+        lambda: [
+            {"symbol": "600000", "freq": "day", "last_dt": "2024-01-02", "source": "tdx"}
+        ],
+    )
+    monkeypatch.setattr(
+        data_updater,
+        "list_cached_symbols",
+        lambda: [
+            {"symbol": "600000", "bars": 1, "start": "2024-01-02", "end": "2024-01-02"}
+        ],
+    )
+
+    client = TestClient(app)
+
+    kline = client.get("/api/market/kline", params={"symbol": "600000"})
+    assert kline.status_code == 200
+    assert kline.json()[0]["close"] == 10.5
+
+    indicator = client.get("/api/market/indicator/MA", params={"symbol": "600000"})
+    assert indicator.status_code == 200
+    assert indicator.json()[0]["MA5"] == 10.2
+
+    unknown_indicator = client.get("/api/market/indicator/not_real", params={"symbol": "600000"})
+    assert unknown_indicator.status_code == 404
+
+    indicators = client.get("/api/market/indicators")
+    assert indicators.status_code == 200
+    assert any("name" in item and "columns" in item for item in indicators.json())
+
+    universe = client.get("/api/market/universe")
+    assert universe.status_code == 200
+    assert universe.json()[0]["symbol"] == "600000"
+
+    calendar = client.get("/api/market/calendar")
+    assert calendar.status_code == 200
+    assert calendar.json()[0]["is_open"] is True
+
+    cache = client.get("/api/market/cache")
+    assert cache.status_code == 200
+    assert cache.json()[0]["bars"] == 1
+
+    cache_status = client.get("/api/market/cache/status")
+    assert cache_status.status_code == 200
+    assert cache_status.json()[0]["freq"] == "day"
+
+
+def test_strategy_list_and_composer_strategy_contract():
+    client = TestClient(app)
+
+    strategies = client.get("/api/strategy/list")
+    assert strategies.status_code == 200
+    names = {item["name"] for item in strategies.json()}
+    assert {"ma_cross", "vol_kdj_bbi", "bbi_kdj_trend", "dip_buy"} <= names
+    assert all(item["params_schema"] for item in strategies.json())
+
+    metrics = client.get("/api/screening/composer/metrics")
+    assert metrics.status_code == 200
+    metric_keys = {item["key"] for item in metrics.json()}
+    assert {"ma5", "ma20", "kdj_j", "volume_ratio_1"} <= metric_keys
+
+    payload = {
+        "name": f"pytest composer {uuid.uuid4().hex[:8]}",
+        "description": "created by api contract test",
+        "logic": "all",
+        "min_score": 1,
+        "top_n": 20,
+        "lookback": 250,
+        "groups": [
+            {
+                "id": "group-1",
+                "name": "pytest group",
+                "logic": "all",
+                "conditions": [
+                    {
+                        "id": "condition-1",
+                        "metric": "ma5",
+                        "operator": "above_metric",
+                        "value": None,
+                        "compare_metric": "ma20",
+                        "weight": 1,
+                        "required": True,
+                        "enabled": True,
+                    }
+                ],
+            }
+        ],
+    }
+
+    created = client.post("/api/screening/composer/strategies", json=payload)
+    assert created.status_code == 200
+    strategy = created.json()
+    try:
+        assert strategy["name"] == payload["name"]
+        assert strategy["groups"][0]["conditions"][0]["compare_metric"] == "ma20"
+
+        updated = client.put(
+            f"/api/screening/composer/strategies/{strategy['id']}",
+            json={**payload, "min_score": 10},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["min_score"] == 10
+
+        listing = client.get("/api/screening/composer/strategies")
+        assert listing.status_code == 200
+        assert any(item["id"] == strategy["id"] for item in listing.json())
+    finally:
+        deleted = client.delete(f"/api/screening/composer/strategies/{strategy['id']}")
+        assert deleted.status_code == 200
+        assert deleted.json() == {"status": "deleted"}
+
+
 def test_backtest_grid_contract_returns_ranked_experiment_items(monkeypatch):
     from server.routers import backtest as backtest_router
 

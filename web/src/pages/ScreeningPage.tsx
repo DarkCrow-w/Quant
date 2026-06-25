@@ -68,6 +68,20 @@ function PanelCard({
   );
 }
 
+function ScreeningFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="workspace-page screening-page">
+      <div className="workspace-heading">
+        <div>
+          <h1>智能选股</h1>
+          <p>组合策略、因子评分和经典信号筛选本地股票池</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function formatVolume(v: number): string {
   if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿';
   if (v >= 1e4) return (v / 1e4).toFixed(0) + '万';
@@ -221,42 +235,56 @@ export default function ScreeningPage() {
   const [subplots, setSubplots] = useState<SubplotKey[]>(['VOL', 'MACD']);
 
   if (mode === 'composer') {
-    return <FactorStrategyBuilder />;
+    return (
+      <ScreeningFrame>
+        <FactorStrategyBuilder />
+      </ScreeningFrame>
+    );
   }
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          height: '100%',
-          minHeight: 400,
-        }}
-      >
-        <Spin size="large" tip="正在扫描全部股票..." style={{ color: '#848e9c' }}>
-          <div style={{ padding: 50 }} />
-        </Spin>
-      </div>
+      <ScreeningFrame>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            height: '100%',
+            minHeight: 400,
+          }}
+        >
+          <Spin size="large" tip="正在扫描全部股票..." style={{ color: '#848e9c' }}>
+            <div style={{ padding: 50 }} />
+          </Spin>
+        </div>
+      </ScreeningFrame>
     );
   }
 
   if (error) {
     return (
-      <Alert
-        type="error"
-        title="选股失败"
-        description={error}
-        showIcon
-        style={{ margin: 20, background: '#1a1d21', border: '1px solid #f6465d40' }}
-      />
+      <ScreeningFrame>
+        <Alert
+          type="error"
+          title="选股失败"
+          description={error}
+          showIcon
+          style={{ background: '#1a1d21', border: '1px solid #f6465d40' }}
+        />
+      </ScreeningFrame>
     );
   }
 
   // ── Score mode ──
   if (mode === 'score') {
-    if (!scoreResult) return <EmptyState />;
+    if (!scoreResult) {
+      return (
+        <ScreeningFrame>
+          <EmptyState />
+        </ScreeningFrame>
+      );
+    }
     const selected = scoreResult.stocks.find((s) => s.symbol === selectedSymbol) || null;
 
     const tagStyle: React.CSSProperties = { margin: 0, borderRadius: 3, border: 'none', fontSize: 10 };
@@ -365,6 +393,7 @@ export default function ScreeningPage() {
     ];
 
     return (
+      <ScreeningFrame>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <PanelCard style={{ padding: '10px 16px' }}>
           <div style={{ display: 'flex', gap: 24, alignItems: 'center', fontSize: 13 }}>
@@ -451,11 +480,18 @@ export default function ScreeningPage() {
           />
         )}
       </div>
+      </ScreeningFrame>
     );
   }
 
   // ── Signal mode (existing) ──
-  if (!result) return <EmptyState />;
+  if (!result) {
+    return (
+      <ScreeningFrame>
+        <EmptyState />
+      </ScreeningFrame>
+    );
+  }
 
   const columns = [
     {
@@ -523,6 +559,7 @@ export default function ScreeningPage() {
   ];
 
   return (
+    <ScreeningFrame>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Stats Bar */}
       <PanelCard style={{ padding: '10px 16px' }}>
@@ -593,5 +630,6 @@ export default function ScreeningPage() {
         />
       )}
     </div>
+    </ScreeningFrame>
   );
 }
