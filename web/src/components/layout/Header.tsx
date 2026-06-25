@@ -92,6 +92,7 @@ export default function Header({
   const [source, setSource] = useState<DataSource>('tdx');
   const [keyword, setKeyword] = useState('');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const observedJobIdsRef = useRef<Set<string>>(new Set());
   const lastCompletedJobRef = useRef<string | undefined>(undefined);
 
   const stopPolling = useCallback(() => {
@@ -107,16 +108,21 @@ export default function Header({
     try {
       const next = await getCurrentDataJob();
       setJob(next);
+      if (next.id && next.running) {
+        observedJobIdsRef.current.add(next.id);
+      }
       if (!next.running && next.id && lastCompletedJobRef.current !== next.id) {
         lastCompletedJobRef.current = next.id;
         await refreshCache();
-        if (next.status === 'completed' && next.failed) {
-          message.warning(`数据任务完成，其中 ${next.failed} 只失败`);
-        } else if (next.status === 'completed') {
-          message.success('数据任务已完成');
+        if (observedJobIdsRef.current.has(next.id)) {
+          if (next.status === 'completed' && next.failed) {
+            message.warning(`数据任务完成，其中 ${next.failed} 只失败`);
+          } else if (next.status === 'completed') {
+            message.success('数据任务已完成');
+          }
+          if (next.status === 'failed') message.error(next.error || '数据任务失败');
+          if (next.status === 'cancelled') message.info('数据任务已取消，已完成的数据已保留');
         }
-        if (next.status === 'failed') message.error(next.error || '数据任务失败');
-        if (next.status === 'cancelled') message.info('数据任务已取消，已完成的数据已保留');
         stopPolling();
       }
     } catch {
@@ -149,6 +155,9 @@ export default function Header({
     try {
       const response = await updateMarketData(symbols, source);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       if (response.status === 'busy') {
         message.info('已有数据任务运行中，请等待完成');
       } else {
@@ -164,6 +173,9 @@ export default function Header({
     try {
       const response = await startDownloadAll(source);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       if (response.status === 'busy') {
         message.info('已有数据任务运行中，请等待完成');
       } else {
@@ -183,6 +195,9 @@ export default function Header({
         ? await resumeDataJob(job.id)
         : await pauseDataJob(job.id);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       message.success(response.status === 'resumed' ? '下载已继续' : '下载已暂停');
       startPolling();
     } catch {
@@ -205,6 +220,9 @@ export default function Header({
         try {
           const response = await cancelDataJob(job.id!);
           setJob(response.job);
+          if (response.job.id) {
+            observedJobIdsRef.current.add(response.job.id);
+          }
           message.info('正在取消，当前请求完成后停止');
           startPolling();
         } catch {

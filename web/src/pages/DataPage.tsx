@@ -77,6 +77,8 @@ export default function DataPage() {
   const [universeLoading, setUniverseLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const observedJobIdsRef = useRef<Set<string>>(new Set());
+  const lastCompletedJobRef = useRef<string | undefined>(undefined);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -100,15 +102,21 @@ export default function DataPage() {
     try {
       const next = await getCurrentDataJob();
       setJob(next);
-      if (!next.running) {
+      if (next.id && next.running) {
+        observedJobIdsRef.current.add(next.id);
+      }
+      if (!next.running && next.id && lastCompletedJobRef.current !== next.id) {
+        lastCompletedJobRef.current = next.id;
         if (next.status === 'completed') {
           await refreshCatalog();
         }
-        if (next.status === 'failed') {
-          message.error(next.error || '数据任务失败');
-        }
-        if (next.status === 'cancelled') {
-          message.info('数据任务已取消');
+        if (observedJobIdsRef.current.has(next.id)) {
+          if (next.status === 'failed') {
+            message.error(next.error || '数据任务失败');
+          }
+          if (next.status === 'cancelled') {
+            message.info('数据任务已取消');
+          }
         }
         stopPolling();
       }
@@ -145,6 +153,9 @@ export default function DataPage() {
     try {
       const response = await updateMarketData(symbols, source);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       message.success(response.status === 'busy' ? '已有数据任务运行中' : '已提交增量更新任务');
       startPolling();
     } catch {
@@ -156,6 +167,9 @@ export default function DataPage() {
     try {
       const response = await startDownloadAll(source);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       message.success(response.status === 'busy' ? '已有数据任务运行中' : '已提交全市场下载任务');
       startPolling();
     } catch {
@@ -184,6 +198,9 @@ export default function DataPage() {
         ? await resumeDataJob(job.id)
         : await pauseDataJob(job.id);
       setJob(response.job);
+      if (response.job.id) {
+        observedJobIdsRef.current.add(response.job.id);
+      }
       startPolling();
     } catch {
       message.error('任务控制失败');
@@ -205,6 +222,9 @@ export default function DataPage() {
         try {
           const response = await cancelDataJob(job.id!);
           setJob(response.job);
+          if (response.job.id) {
+            observedJobIdsRef.current.add(response.job.id);
+          }
           startPolling();
         } catch {
           message.error('取消任务失败');
