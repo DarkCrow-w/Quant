@@ -53,6 +53,7 @@ cd web && npm ci && cd ..
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\verify_clone_start.py
+.\.venv\Scripts\python.exe scripts\verify_data_integrity.py
 .\.venv\Scripts\python.exe scripts\verify_deployment_config.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_text_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_ui_inventory.py

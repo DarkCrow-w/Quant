@@ -39,6 +39,7 @@ def main() -> None:
         ],
     )
     run_step("offline demo data seed", [sys.executable, "scripts/seed_demo_data.py"])
+    run_step("market data integrity", [sys.executable, "scripts/verify_data_integrity.py", "--skip-demo-seed"])
     run_step("backend tests", [sys.executable, "-m", "pytest", "-q"])
 
     if args.skip_web:
