@@ -51,6 +51,10 @@ def main() -> None:
         run_step("frontend dependencies", [npm, "ci"], cwd=WEB_DIR)
     run_step("frontend text smoke", [sys.executable, "scripts/verify_frontend_text_smoke.py"])
     run_step("frontend production build", [npm, "run", "build"], cwd=WEB_DIR)
+    run_step(
+        "frontend production preview smoke",
+        [sys.executable, "scripts/verify_production_frontend_smoke.py", "--skip-build"],
+    )
 
     print("\n[verify] QuantLab clone verification passed.")
 
