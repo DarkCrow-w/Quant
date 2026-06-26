@@ -37,6 +37,12 @@ def request(client: TestClient, method: str, path: str, **kwargs) -> Any:
     return response.json()
 
 
+def response_text(client: TestClient, method: str, path: str, **kwargs) -> str:
+    response = getattr(client, method)(path, **kwargs)
+    ensure(response.status_code == 200, f"{method.upper()} {path} failed: {response.status_code} {response.text}")
+    return response.text
+
+
 def assert_clean_text(value: Any, path: str = "root") -> None:
     if isinstance(value, str):
         ensure("\ufffd" not in value, f"{path} contains replacement character")
@@ -219,6 +225,11 @@ def main() -> int:
     ensure(system.get("status") == "ok", "System status is not ok")
     report["system_score"] = system.get("score")
 
+    agent = request(client, "get", "/api/agent/status")
+    ensure("enabled" in agent and "configured" in agent, "Agent status response is missing expected fields")
+    assert_clean_text(agent, "agent_status")
+    report["agent_configured"] = bool(agent.get("configured"))
+
     universe = request(client, "get", "/api/market/universe")
     ensure(len(universe) >= args.min_universe, f"Universe too small: {len(universe)} < {args.min_universe}")
     report["universe"] = len(universe)
@@ -228,6 +239,11 @@ def main() -> int:
     symbol = choose_symbol(args.symbol, cache)
     report["cache"] = len(cache)
     report["symbol"] = symbol
+
+    data_job = request(client, "get", "/api/market/jobs/current")
+    ensure("status" in data_job and "running" in data_job, "Data job status response is missing expected fields")
+    assert_clean_text(data_job, "data_job")
+    report["data_job_status"] = data_job["status"]
 
     kline = request(
         client,
@@ -327,6 +343,23 @@ def main() -> int:
     research = request(client, "get", "/api/research/summary")
     ensure(research.get("total_backtests", 0) > 0, "Research summary has no backtests after smoke run")
     report["research_total_backtests"] = research["total_backtests"]
+
+    runs = request(client, "get", "/api/research/backtests", params={"limit": 5})
+    ensure(runs, "Research backtest listing is empty")
+    run_id = runs[0]["id"]
+    detail = request(client, "get", f"/api/research/backtests/{run_id}")
+    ensure(detail["id"] == run_id and "result" in detail, "Research detail response is invalid")
+    assert_clean_text(detail, "research_detail")
+    report_md = response_text(client, "post", "/api/research/reports/backtests.md", json={"run_ids": [run_id]})
+    ensure("QuantLab Research Report" in report_md, "Research markdown report missing title")
+    assert_clean_text(report_md, "research_report")
+    report["research_report"] = True
+
+    trading = request(client, "get", "/api/trading/status")
+    ensure(trading.get("safety_mode") == "manual_start", "Trading status safety mode changed")
+    ensure(trading.get("entrypoint"), "Trading status missing manual entrypoint")
+    assert_clean_text(trading, "trading_status")
+    report["trading_ready"] = bool(trading.get("ready"))
 
     print(json.dumps({"status": "ok", "report": report}, ensure_ascii=False, indent=2))
     return 0
