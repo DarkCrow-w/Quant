@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App as AntdApp, Button, Drawer, Form, Input, InputNumber, Space, Switch, Table, Tag } from 'antd';
+import { App as AntdApp, Button, Drawer, Form, Input, InputNumber, Popconfirm, Space, Switch, Table, Tag, Tooltip } from 'antd';
 import { DeleteOutlined, EditOutlined, PlusOutlined, SafetyCertificateOutlined, SaveOutlined } from '@ant-design/icons';
 import {
   createRiskRule,
@@ -107,9 +107,24 @@ export default function RiskPage() {
                 width: 170,
                 render: (_, row) => (
                   <Space>
-                    <Button icon={<SafetyCertificateOutlined />} onClick={() => runEvaluation(row)} />
-                    <Button icon={<EditOutlined />} onClick={() => startEdit(row)} />
-                    <Button danger icon={<DeleteOutlined />} onClick={() => remove(row)} />
+                    <Tooltip title="运行样例评估">
+                      <Button icon={<SafetyCertificateOutlined />} onClick={() => runEvaluation(row)} />
+                    </Tooltip>
+                    <Tooltip title="编辑规则">
+                      <Button icon={<EditOutlined />} onClick={() => startEdit(row)} />
+                    </Tooltip>
+                    <Popconfirm
+                      title="删除这条风控规则？"
+                      description="删除后无法在当前规则库中继续使用。"
+                      okText="删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => remove(row)}
+                    >
+                      <Tooltip title="删除规则">
+                        <Button danger icon={<DeleteOutlined />} />
+                      </Tooltip>
+                    </Popconfirm>
                   </Space>
                 ),
               },
