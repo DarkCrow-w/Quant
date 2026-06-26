@@ -88,7 +88,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Verify QuantLab local market-data integrity.")
     parser.add_argument("--root", type=Path, default=ROOT / "data", help="Data root to inspect.")
     parser.add_argument("--min-universe", type=int, default=5000)
-    parser.add_argument("--min-cache", type=int, default=5)
+    parser.add_argument("--min-cache", type=int, default=10)
     parser.add_argument("--min-bars", type=int, default=30)
     parser.add_argument("--sample-size", type=int, default=16, help="Cached symbols to inspect with indicators.")
     parser.add_argument("--skip-demo-seed", action="store_true")

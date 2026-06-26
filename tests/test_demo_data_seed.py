@@ -17,7 +17,7 @@ def test_demo_universe_survives_a_share_filter():
 
 
 def test_seed_demo_data_creates_offline_universe_and_cache(tmp_path):
-    report = seed_demo_data(tmp_path, min_cache=5, min_universe=120)
+    report = seed_demo_data(tmp_path, min_cache=10, min_universe=120)
     store = DataStore(tmp_path)
 
     universe = store.get_universe()
@@ -32,7 +32,7 @@ def test_seed_demo_data_creates_offline_universe_and_cache(tmp_path):
     assert len(kline) >= 200
     assert {"ma5", "ma20", "kdj_k", "bbi"}.issubset(kline.columns)
 
-    second = seed_demo_data(tmp_path, min_cache=5, min_universe=120)
+    second = seed_demo_data(tmp_path, min_cache=10, min_universe=120)
     assert second["written_symbols"] == []
     assert second["cache_after"] == report["cache_after"]
 
@@ -45,7 +45,7 @@ def test_seed_demo_data_script_runs_from_repo_root(tmp_path):
             "--root",
             str(tmp_path),
             "--min-cache",
-            "5",
+            "10",
             "--min-universe",
             "120",
         ],

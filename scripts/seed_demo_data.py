@@ -180,7 +180,7 @@ def seed_demo_data(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Seed deterministic offline QuantLab demo market data.")
     parser.add_argument("--root", type=Path, default=ROOT / "data", help="Data root to seed.")
-    parser.add_argument("--min-cache", type=int, default=5, help="Only seed cache when fewer symbols exist.")
+    parser.add_argument("--min-cache", type=int, default=10, help="Only seed cache when fewer symbols exist.")
     parser.add_argument("--min-universe", type=int, default=5000, help="Minimum universe rows to ensure.")
     parser.add_argument("--force", action="store_true", help="Overwrite demo symbols and universe metadata.")
     args = parser.parse_args()

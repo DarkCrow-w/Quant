@@ -63,7 +63,7 @@ def verify_frontend_strategy_source() -> dict[str, bool]:
 
 
 def main() -> int:
-    seed_report = seed_demo_data(ROOT / "data", min_cache=5, min_universe=5000)
+    seed_report = seed_demo_data(ROOT / "data", min_cache=10, min_universe=5000)
     client = TestClient(app)
     store = FactorStrategyStore()
 

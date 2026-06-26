@@ -36,7 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--keep", action="store_true", help="Keep the temporary clone directory after the check.")
     parser.add_argument("--min-universe", type=int, default=5000, help="Minimum expected seeded universe size.")
-    parser.add_argument("--min-cache", type=int, default=5, help="Minimum expected seeded cache size.")
+    parser.add_argument("--min-cache", type=int, default=10, help="Minimum expected seeded cache size.")
     parser.add_argument("--symbol", default="600519", help="Preferred smoke-test symbol.")
     return parser.parse_args()
 
