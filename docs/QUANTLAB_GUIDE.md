@@ -267,6 +267,7 @@ clone 后建议执行：
 .\.venv\Scripts\python.exe scripts\verify_clone_start.py
 .\.venv\Scripts\python.exe scripts\verify_data_integrity.py
 .\.venv\Scripts\python.exe scripts\verify_deployment_config.py
+.\.venv\Scripts\python.exe scripts\verify_frontend_api_contract.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_text_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_ui_inventory.py
 .\.venv\Scripts\python.exe scripts\verify_production_frontend_smoke.py
