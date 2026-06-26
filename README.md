@@ -56,6 +56,7 @@ cd web && npm ci && cd ..
 .\.venv\Scripts\python.exe scripts\verify_deployment_config.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_text_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_runtime_smoke.py
+.\.venv\Scripts\python.exe scripts\verify_fresh_clone_smoke.py
 ```
 
 这会验证后端导入、后端测试、前端生产构建、前端文案编码、部署配置，以及真实本地数据下的核心 API 链路。

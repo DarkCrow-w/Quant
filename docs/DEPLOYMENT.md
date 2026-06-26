@@ -48,6 +48,7 @@ cp config/quant.prod.env.example config/quant.env
 python scripts/verify_clone_start.py
 python scripts/verify_deployment_config.py
 python scripts/verify_runtime_smoke.py
+python scripts/verify_fresh_clone_smoke.py
 ```
 
 `verify_clone_start.py` 会检查后端导入、后端测试和前端生产构建。
