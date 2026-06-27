@@ -289,7 +289,7 @@ npm run lint
 npm run build
 ```
 
-运行时烟测 `verify_runtime_smoke.py` 会先确保离线 demo 数据存在，再使用本地数据检查健康状态、系统总览、股票池、缓存、K 线、策略列表、回测、因子挖掘、智能选股、组合指标、风控评估和研究资产摘要；`verify_clone_start.py` 已将该烟测和干净 clone 初始化验收纳入一键验收。
+运行时烟测 `verify_runtime_smoke.py` 会先确保离线 demo 数据存在，再使用本地数据检查健康状态、系统总览、股票池、缓存、K 线、策略列表、回测、因子挖掘、智能选股、组合指标、风控评估和研究资产摘要；`verify_clone_start.py` 已将该烟测、部署配置检查和干净 clone 初始化验收纳入一键验收。
 策略一致性验证 `verify_strategy_consistency.py` 会检查策略库内置组合策略和回测页可选策略是否保持一致，并实际运行一次组合策略回测。
 前端文本烟测 `verify_frontend_text_smoke.py` 会扫描 React 源码和入口 HTML，拦截常见中文乱码、替换字符和问号乱码。
 

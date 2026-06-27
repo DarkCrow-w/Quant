@@ -39,6 +39,7 @@ def main() -> None:
         ],
     )
     run_step("configuration contract", [sys.executable, "scripts/verify_config_contract.py"])
+    run_step("deployment configuration", [sys.executable, "scripts/verify_deployment_config.py"])
     run_step("offline demo data seed", [sys.executable, "scripts/seed_demo_data.py"])
     run_step("market data integrity", [sys.executable, "scripts/verify_data_integrity.py", "--skip-demo-seed"])
     run_step("strategy library consistency", [sys.executable, "scripts/verify_strategy_consistency.py"])

@@ -59,7 +59,7 @@ python scripts/verify_fresh_clone_smoke.py
 python scripts/verify_windows_launch_smoke.py
 ```
 
-`verify_clone_start.py` 会检查后端导入、配置、数据完整性、策略一致性、启动脚本、后端测试、运行时 API 冒烟、干净 clone 初始化和前端生产构建。
+`verify_clone_start.py` 会检查后端导入、配置、部署配置、数据完整性、策略一致性、启动脚本、后端测试、运行时 API 冒烟、干净 clone 初始化和前端生产构建。
 
 `verify_deployment_config.py` 会检查 Docker、Nginx、Compose 和生产环境模板。
 
