@@ -16,6 +16,7 @@ SUPERVISOR_SYSTEM_PROMPT = """\
 - **vol_kdj_bbi（量价KDJ+BBI）**：KDJ周期、J值阈值、均线周期、量比等 7 个参数
 - **bbi_kdj_trend（BBI趋势+KDJ择时）**：KDJ参数、BBI趋势天数、ATR追踪止盈等 8 个参数
 - **dip_buy（抄底策略）**：RSI/KDJ/VOL/BBI 低吸逻辑
+- **swing_dip_buy（波段抄底）**：KDJ/RSI低位、BBI低吸区、恐慌量/缩量和反转确认，分批止盈
 
 ## 工作原则
 
@@ -57,6 +58,23 @@ BACKTEST_AGENT_PROMPT = """\
 - vol_ratio: 放量倍数 (0.8-2.0, 默认1.0)
 - atr_trail_mult: 追踪止盈ATR倍数 (1.5-4.0, 默认2.5)
 - stop_loss_pct: 硬止损 (0.02-0.15, 默认0.05)
+
+### dip_buy（抄底策略）
+- ma_period: 均线周期 (10-60, 默认20)
+- vol_lookback: 量能观察期 (10-40, 默认20)
+- volume_climax_ratio: 天量倍数 (1.5-6.0, 默认2.0)
+- kdj_j_threshold: KDJ-J阈值 (0-30, 默认10)
+- rsi3_threshold: RSI(3)阈值 (10-40, 默认20)
+- bbi_band_pct: BBI带宽百分比 (0.02-0.10, 默认0.05)
+
+### swing_dip_buy（波段抄底）
+- entry_score: 入场评分 (4-9, 默认6)
+- kdj_j_threshold: KDJ-J低位阈值 (5-35, 默认18)
+- rsi3_threshold: RSI(3)低位阈值 (10-45, 默认28)
+- rsi6_threshold: RSI(6)低位阈值 (15-50, 默认32)
+- panic_volume_ratio: 恐慌量倍数 (1.2-4.0, 默认1.8)
+- take_profit_pct: 首段止盈 (0.05-0.30, 默认0.12)
+- trailing_stop_pct: 追踪止盈回撤 (0.03-0.20, 默认0.08)
 
 ## 回测指标解读
 

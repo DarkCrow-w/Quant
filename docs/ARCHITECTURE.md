@@ -135,6 +135,7 @@ API 封装：
 - `vol_kdj_bbi`
 - `bbi_kdj_trend`
 - `dip_buy`
+- `swing_dip_buy`
 
 ## 6. 数据和元数据
 

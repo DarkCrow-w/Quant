@@ -35,6 +35,7 @@ EXPECTED_BUILTIN_COMPOSITES = {
     "vol_kdj_bbi": "builtin_vol_kdj_bbi",
     "bbi_kdj_trend": "builtin_bbi_kdj_trend",
     "dip_buy": "builtin_dip_buy",
+    "swing_dip_buy": "builtin_swing_dip_buy",
 }
 
 

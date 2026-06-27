@@ -56,7 +56,7 @@ QuantLab 当前是一套本地可运行的量化研究控制台，主入口是 `
 能力：
 
 - 管理可复用策略资产，支持新建、编辑、删除、启停、标签和说明。
-- 每个策略资产绑定一个基础策略，例如 `ma_cross`、`vol_kdj_bbi`、`bbi_kdj_trend`、`dip_buy`。
+- 每个策略资产绑定一个基础策略，例如 `ma_cross`、`vol_kdj_bbi`、`bbi_kdj_trend`、`dip_buy`、`swing_dip_buy`。
 - 策略参数表单根据基础策略 schema 生成。
 - 策略管理里的策略库会同步到回测研究页面，作为可选回测策略。
 

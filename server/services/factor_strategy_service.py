@@ -137,6 +137,34 @@ def _builtin_strategy_drafts() -> dict[str, FactorStrategyDraft]:
             top_n=100,
             lookback=250,
         ),
+        "builtin_swing_dip_buy": FactorStrategyDraft(
+            name="波段抄底（KDJ+RSI+VOL+BBI）",
+            description="基于抄底策略优化：KDJ/RSI 低位、BBI低吸区、恐慌量/缩量回踩和反转确认共同触发，适合波段低吸。",
+            logic="all",
+            groups=[
+                {
+                    "id": "oversold_zone",
+                    "name": "低位超卖",
+                    "logic": "any",
+                    "conditions": [
+                        _condition("kdj_j_low", "kdj_j", "lt", 18),
+                        _condition("rsi6_low", "rsi6", "lt", 32),
+                    ],
+                },
+                {
+                    "id": "bbi_volume_reversal",
+                    "name": "BBI低吸与量能修复",
+                    "logic": "all",
+                    "conditions": [
+                        _condition("close_below_bbi_zone", "close", "below_metric", None, compare_metric="bbi"),
+                        _condition("volume_repair", "volume_ratio_1", "gte", 0.8, required=False),
+                    ],
+                },
+            ],
+            min_score=70,
+            top_n=100,
+            lookback=250,
+        ),
     }
 
 

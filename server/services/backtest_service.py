@@ -83,6 +83,26 @@ STRATEGY_REGISTRY: dict[str, dict] = {
             ParamSchema(name="n_form_close_pct", type="float", default=0.05, min=0.02, max=0.10, label="N形前低接近度"),
         ],
     },
+    "swing_dip_buy": {
+        "cls": BASIC_STRATEGY_CLASSES["swing_dip_buy"],
+        "display_name": "波段抄底（KDJ+RSI+VOL+BBI）",
+        "params_schema": [
+            ParamSchema(name="lookback", type="int", default=30, min=20, max=80, label="观察窗口"),
+            ParamSchema(name="entry_score", type="int", default=6, min=4, max=9, label="入场评分"),
+            ParamSchema(name="kdj_j_threshold", type="int", default=18, min=5, max=35, label="KDJ-J低位阈值"),
+            ParamSchema(name="rsi3_threshold", type="int", default=28, min=10, max=45, label="RSI(3)低位阈值"),
+            ParamSchema(name="rsi6_threshold", type="int", default=32, min=15, max=50, label="RSI(6)低位阈值"),
+            ParamSchema(name="bbi_lower_band_pct", type="float", default=0.10, min=0.03, max=0.18, label="BBI下方低吸带"),
+            ParamSchema(name="bbi_upper_band_pct", type="float", default=0.03, min=0.00, max=0.08, label="BBI上方容忍带"),
+            ParamSchema(name="panic_volume_ratio", type="float", default=1.8, min=1.2, max=4.0, label="恐慌量倍数"),
+            ParamSchema(name="dryup_ratio", type="float", default=0.85, min=0.50, max=1.10, label="缩量倍数"),
+            ParamSchema(name="stop_loss_pct", type="float", default=0.055, min=0.02, max=0.12, label="硬止损"),
+            ParamSchema(name="take_profit_pct", type="float", default=0.12, min=0.05, max=0.30, label="首段止盈"),
+            ParamSchema(name="second_profit_pct", type="float", default=0.22, min=0.10, max=0.60, label="二段止盈"),
+            ParamSchema(name="trailing_stop_pct", type="float", default=0.08, min=0.03, max=0.20, label="追踪止盈回撤"),
+            ParamSchema(name="bbi_break_days", type="int", default=2, min=1, max=5, label="BBI破位天数"),
+        ],
+    },
 }
 
 
