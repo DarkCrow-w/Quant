@@ -58,6 +58,7 @@ cd web && npm ci && cd ..
 .\.venv\Scripts\python.exe scripts\verify_strategy_consistency.py
 .\.venv\Scripts\python.exe scripts\verify_deployment_config.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_api_contract.py
+.\.venv\Scripts\python.exe scripts\verify_agent_frontend_contract.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_text_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_frontend_ui_inventory.py
 .\.venv\Scripts\python.exe scripts\verify_launch_scripts.py
@@ -65,6 +66,13 @@ cd web && npm ci && cd ..
 .\.venv\Scripts\python.exe scripts\verify_runtime_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_fresh_clone_smoke.py
 .\.venv\Scripts\python.exe scripts\verify_windows_launch_smoke.py
+```
+
+AI Agent 专项体验验证（需要后端已启动；若已配置模型 API Key，会自动运行真实 WebSocket 冒烟）：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\verify_agent_quality.py
+.\.venv\Scripts\python.exe scripts\verify_agent_runtime_smoke.py
 ```
 
 这会验证后端导入、配置契约、部署配置、后端测试、运行时 API 冒烟、干净 clone 初始化、前端生产构建、前端文案编码，以及真实本地数据下的核心链路。

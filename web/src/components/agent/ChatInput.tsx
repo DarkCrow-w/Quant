@@ -18,9 +18,14 @@ export default function ChatInput() {
   const handleSend = () => {
     const content = text.trim();
     if (!content && images.length === 0) return;
-    store.sendMessage(content, images.length ? images : undefined);
-    setText('');
-    setImages([]);
+    const accepted = store.sendMessage(
+      content,
+      images.length ? images : undefined,
+    );
+    if (accepted) {
+      setText('');
+      setImages([]);
+    }
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -41,6 +46,15 @@ export default function ChatInput() {
   };
 
   const disabled = store.runtime?.enabled === false;
+  const composerHint = disabled
+    ? store.runtime?.reason || '请先配置 Agent 模型 API Key'
+    : store.queuedMessage
+      ? store.queuedMessage
+      : store.isStreaming
+        ? '正在生成研究结论，工具调用和最终答案会实时更新'
+        : store.connectionState === 'connected'
+          ? 'Enter 发送，Shift+Enter 换行'
+          : '研究服务未连接，发送后会自动尝试连接';
 
   return (
     <div className="chat-composer">
@@ -48,10 +62,7 @@ export default function ChatInput() {
         <div className="chat-image-list">
           {images.map((image, index) => (
             <div className="chat-image-preview" key={`${image.slice(0, 16)}-${index}`}>
-              <img
-                src={`data:image/png;base64,${image}`}
-                alt="待分析图片"
-              />
+              <img src={`data:image/png;base64,${image}`} alt="待分析图片" />
               <Button
                 size="small"
                 type="text"
@@ -98,7 +109,7 @@ export default function ChatInput() {
           placeholder={
             disabled
               ? '请先配置 Agent 模型 API Key'
-              : '输入研究问题，Enter 发送，Shift+Enter 换行'
+              : '输入研究问题，例如：分析 000001 最近 60 日趋势和风险'
           }
           disabled={disabled}
           rows={1}
@@ -123,6 +134,13 @@ export default function ChatInput() {
             />
           </Tooltip>
         )}
+      </div>
+      <div
+        className={`chat-composer-hint ${
+          store.queuedMessage || store.connectionState === 'error' ? 'attention' : ''
+        }`}
+      >
+        {composerHint}
       </div>
     </div>
   );

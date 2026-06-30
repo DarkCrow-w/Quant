@@ -160,7 +160,7 @@ class DataJobManager:
             target_symbols = requested_symbols
             universe_origin = "request"
             if kind == "download" and not target_symbols:
-                target_symbols, universe_origin = _local_download_symbols()
+                target_symbols, universe_origin = _initial_download_symbols(source)
             with self._connect() as conn:
                 conn.execute(
                     """
@@ -312,9 +312,21 @@ class DataJobManager:
         try:
             control.checkpoint()
             if kind == "download":
+                if symbols is None:
+                    progress(0, 0, "UNIVERSE", "running:resolving stock universe")
+                    symbols, universe_origin = _local_download_symbols(source)
+                    self._merge_result(
+                        job_id,
+                        {
+                            "requested_symbols": [],
+                            "universe_origin": universe_origin,
+                        },
+                    )
+                    if symbols:
+                        self._set_job(job_id, total=len(symbols))
                 symbols_info = (
                     [{"symbol": symbol} for symbol in symbols]
-                    if symbols
+                    if symbols is not None
                     else None
                 )
                 if symbols_info:
@@ -353,12 +365,23 @@ class DataJobManager:
                     ][:50],
                 }
             control.checkpoint()
+            result_total = int(result.get("total") or 0)
+            result_success = int(result.get("success") or 0)
+            result_skipped = int(result.get("skipped") or 0)
+            result_failed = int(result.get("failed") or 0)
+            final_result = self._result_snapshot(job_id)
+            final_result.update(result)
             self._set_job(
                 job_id,
                 status="completed",
+                total=result_total,
+                completed=result_total,
+                updated=result_success,
+                skipped=result_skipped,
+                failed=result_failed,
                 finished_at=_now(),
                 elapsed_s=round(time.monotonic() - started, 2),
-                result_json=json.dumps(result, ensure_ascii=False),
+                result_json=json.dumps(final_result, ensure_ascii=False),
             )
         except DataOperationCancelled:
             self._set_job(
@@ -392,7 +415,9 @@ class DataJobManager:
         symbol: str,
         status: str,
     ) -> None:
-        normalized = _normalize_status(status)
+        raw_status, _, message = status.partition(":")
+        normalized = _normalize_status(raw_status)
+        message = message.strip()
         now = _now()
         with self._connect() as conn:
             previous = conn.execute(
@@ -401,12 +426,14 @@ class DataJobManager:
             ).fetchone()
             conn.execute(
                 """
-                INSERT INTO data_job_items(job_id, symbol, status, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO data_job_items(job_id, symbol, status, message, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(job_id, symbol) DO UPDATE SET
-                    status = excluded.status, updated_at = excluded.updated_at
+                    status = excluded.status,
+                    message = excluded.message,
+                    updated_at = excluded.updated_at
                 """,
-                (job_id, symbol, normalized, now),
+                (job_id, symbol, normalized, message, now),
             )
             previous_status = str(previous["status"]) if previous is not None else None
             delta = {
@@ -451,48 +478,134 @@ class DataJobManager:
                 [value for _, value in fields] + [job_id],
             )
 
+    def _merge_result(self, job_id: str, values: dict) -> None:
+        with self._connect() as conn:
+            current = self._result_snapshot(job_id, conn)
+            current.update(values)
+            conn.execute(
+                "UPDATE data_jobs SET result_json = ? WHERE id = ?",
+                (json.dumps(current, ensure_ascii=False), job_id),
+            )
+
+    def _result_snapshot(
+        self,
+        job_id: str,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict:
+        owns_connection = conn is None
+        active_conn = conn or self._connect()
+        try:
+            row = active_conn.execute(
+                "SELECT result_json FROM data_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                return {}
+            return json.loads(row["result_json"] or "{}")
+        finally:
+            if owns_connection:
+                active_conn.close()
+
 
 def _effective_workers(source: DataSource, requested: int) -> int:
     memory_cap = max(1, _MEMORY_BUDGET_BYTES // _ESTIMATED_WORKER_BYTES)
     return max(1, min(int(requested), _PROVIDER_WORKER_CAPS[source], memory_cap))
 
 
-def _local_download_symbols() -> tuple[list[str], str]:
-    """Resolve the whole-market target locally so progress has a total immediately."""
+def _symbols_from_universe_rows(rows: list[dict]) -> list[str]:
+    symbols = [
+        str(item.get("symbol", "")).zfill(6)
+        for item in rows
+        if is_a_share_symbol(str(item.get("symbol", "")), include_bj=False)
+    ]
+    return list(dict.fromkeys(symbols))
+
+
+def _persist_universe_rows(rows: list[dict]) -> None:
+    if not rows:
+        return
+    import pandas as pd
+
+    store = get_store()
+    out_path = store.meta_path("symbols")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_parquet(out_path, index=False)
+
+
+def _local_universe_symbols() -> list[str]:
     store = get_store()
     universe = store.get_universe()
-    if not universe.empty and "symbol" in universe.columns:
-        symbols = [
-            str(symbol).zfill(6)
-            for symbol in universe["symbol"].tolist()
-            if is_a_share_symbol(symbol, include_bj=False)
-        ]
-        if symbols:
-            return list(dict.fromkeys(symbols)), "symbols.parquet"
-    try:
-        remote = fetch_all_a_symbols("tdx")
-        if remote:
-            import pandas as pd
+    if universe.empty or "symbol" not in universe.columns:
+        return []
+    symbols = [
+        str(symbol).zfill(6)
+        for symbol in universe["symbol"].tolist()
+        if is_a_share_symbol(str(symbol), include_bj=False)
+    ]
+    return list(dict.fromkeys(symbols))
 
-            out_path = store.meta_path("symbols")
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame(remote).to_parquet(out_path, index=False)
-            symbols = [
-                str(item["symbol"]).zfill(6)
-                for item in remote
-                if str(item.get("symbol", "")).strip()
-            ]
-            return list(dict.fromkeys(symbols)), "remote:tdx"
+
+def _remote_download_symbols(source: DataSource) -> tuple[list[str], str]:
+    remote = fetch_all_a_symbols(source)
+    symbols = _symbols_from_universe_rows(remote)
+    if symbols:
+        _persist_universe_rows(remote)
+    return symbols, f"remote:{source}"
+
+
+def _local_download_symbols(source: DataSource) -> tuple[list[str], str]:
+    """Resolve the whole-market target locally so progress has a total immediately."""
+    local_symbols = _local_universe_symbols()
+    if source == "tushare":
+        if len(local_symbols) >= 1000:
+            return local_symbols, "symbols.parquet"
+        try:
+            symbols, origin = _remote_download_symbols("tdx")
+            if symbols:
+                return symbols, origin
+        except Exception as exc:
+            logger.warning(f"failed to refresh stable universe before tushare download: {exc}")
+        if local_symbols:
+            return local_symbols, "symbols.parquet"
+        try:
+            symbols, origin = _remote_download_symbols(source)
+            if symbols:
+                return symbols, origin
+        except Exception as exc:
+            logger.warning(f"failed to refresh tushare universe before download: {exc}")
+
+    if len(local_symbols) >= 1000:
+        return local_symbols, "symbols.parquet"
+    try:
+        symbols, origin = _remote_download_symbols(source if source != "tushare" else "tdx")
+        if symbols:
+            return symbols, origin
     except Exception as exc:
         logger.warning(f"failed to refresh remote universe before download: {exc}")
+    if local_symbols:
+        return local_symbols, "symbols.parquet"
     return [], "remote"
 
 
+def _initial_download_symbols(source: DataSource) -> tuple[list[str], str]:
+    """Return only cheap local download targets for the request thread.
+
+    Remote universe refresh can block on provider networking, so it belongs in
+    the background worker after the caller has a job id and visible progress.
+    """
+    local_symbols = _local_universe_symbols()
+    if len(local_symbols) >= 1000:
+        return local_symbols, "symbols.parquet"
+    return [], "background:remote"
+
+
 def _normalize_status(status: str) -> str:
+    status = status.split(":", 1)[0]
     if status in {"updated", "ok", "done"}:
         return "updated"
     if status in {"up_to_date", "no_new_data", "skipped"}:
         return "skipped"
+    if status in {"downloading", "fetching", "running"}:
+        return "running"
     return "failed"
 
 

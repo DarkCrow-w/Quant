@@ -78,6 +78,7 @@ class TushareSettings:
     fetch_adj_factor: bool
     workers: int
     retries: int
+    timeout: float
 
 
 @dataclass(frozen=True)
@@ -161,10 +162,11 @@ def get_settings() -> Settings:
         ),
         tushare=TushareSettings(
             token=_text("TUSHARE_TOKEN"),
-            rpm=_integer("TUSHARE_RPM", 180, 1),
+            rpm=_integer("TUSHARE_RPM", 45, 1),
             fetch_adj_factor=_boolean("TUSHARE_FETCH_ADJ_FACTOR"),
             workers=_integer("TUSHARE_WORKERS", 4, 1),
             retries=_integer("TUSHARE_RETRIES", 2, 0),
+            timeout=_float("TUSHARE_TIMEOUT", 20.0, 1.0),
         ),
         tdx=TdxSettings(
             host=_text("TDX_HOST"),

@@ -83,6 +83,8 @@ _LEGACY_SOURCE_SEMAPHORES: dict[str, threading.Semaphore] = {
 _LEGACY_TUSHARE_RATE_LOCK = threading.Lock()
 _LEGACY_TUSHARE_LAST_CALL_AT = 0.0
 _LEGACY_TUSHARE_MIN_INTERVAL = 60.0 / _SETTINGS.tushare.rpm
+_TUSHARE_UPDATE_CHUNK_SIZE = 64
+_DAILY_BAR_PUBLISH_HOUR = 18
 
 
 def _fetch_daily(symbol: str, start: str, end: str, source: DataSource = "tushare") -> pd.DataFrame:
@@ -160,32 +162,34 @@ def update_symbol(
         end_date: 截止日期，默认今天
         source: 数据源, "tushare" 或 "tdx"
     """
-    today = end_date or str(date.today())
-    today_clean = today.replace("-", "")
     checkpoint = control or (lambda: None)
     checkpoint()
 
     store = get_store()
+    target_end = _target_trade_date(store, end_date)
+    today = str(target_end)
+    today_clean = _to_yyyymmdd(target_end)
     sym = normalize(symbol)
     last_date = store.get_last_date(sym, "day")
     entry = store.catalog.get(sym, "day")
 
     if last_date is not None:
         next_day = last_date + timedelta(days=1)
-        if str(next_day) > today:
+        if last_date >= target_end:
             return {
                 "symbol": sym,
                 "status": "up_to_date",
                 "bars": entry.rows if entry is not None else 0,
                 "end": str(last_date),
                 "new_bars": 0,
+                "source": source,
+                "cached": True,
             }
-        start = str(next_day).replace("-", "")
+        start = _to_yyyymmdd(next_day)
     else:
         last_date = None
-        start = (date.today() - timedelta(days=365 * 3)).strftime("%Y%m%d")
-        # 没有缓存，默认拉近3年
-        start = str(date.today() - timedelta(days=365 * 3)).replace("-", "")
+        start = _to_yyyymmdd(target_end - timedelta(days=365 * 3))
+        # 没有缓存，默认从目标交易日回溯三年。
 
     sources = _fallback_chain(source) if fallback_sources else [source]
     df_new = pd.DataFrame()
@@ -365,6 +369,70 @@ def _parse_date(value: str | date | None, default: date) -> date:
     return date.fromisoformat(text)
 
 
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    return [items[i: i + size] for i in range(0, len(items), max(1, size))]
+
+
+def _previous_weekday(value: date) -> date:
+    current = value
+    while current.weekday() >= 5:
+        current -= timedelta(days=1)
+    return current
+
+
+def _latest_publishable_daily_date(requested: date) -> date:
+    now = datetime.now()
+    if requested >= now.date() and now.hour < _DAILY_BAR_PUBLISH_HOUR:
+        return now.date() - timedelta(days=1)
+    return requested
+
+
+def _target_trade_date(store: DataStore, end_date: str | date | None) -> date:
+    """Return the latest trading date that should be present in cache.
+
+    Natural dates cause many pointless provider calls on weekends, holidays, and
+    dates whose daily bars are not yet published. Prefer the stored exchange
+    calendar, and fall back to the previous weekday when no calendar exists.
+    """
+    requested = _latest_publishable_daily_date(_parse_date(end_date, date.today()))
+    try:
+        calendar = store.get_calendar(end=requested)
+        if calendar.empty:
+            return _previous_weekday(requested)
+        return _last_trade_date(store, requested)
+    except Exception:
+        return _previous_weekday(requested)
+
+
+def _preclassify_cached_symbols(
+    symbols: list[str],
+    target_end: date,
+    source: DataSource,
+    store: DataStore,
+) -> tuple[list[str], dict[str, dict]]:
+    """Split symbols into pending downloads and already-complete cache hits."""
+    last_dates = store.get_last_dates(symbols, "day")
+    entries = store.catalog.entries("day")
+    pending: list[str] = []
+    skipped: dict[str, dict] = {}
+    for symbol in symbols:
+        last = last_dates.get(symbol)
+        if last is not None and last >= target_end:
+            entry = entries.get(symbol)
+            skipped[symbol] = {
+                "symbol": symbol,
+                "status": "up_to_date",
+                "bars": entry.rows if entry is not None else 0,
+                "end": str(last),
+                "new_bars": 0,
+                "source": source,
+                "cached": True,
+            }
+        else:
+            pending.append(symbol)
+    return pending, skipped
+
+
 def _update_symbols_tushare_batch(
     symbols: list[str],
     end_date: str | date | None = None,
@@ -381,24 +449,20 @@ def _update_symbols_tushare_batch(
         return []
 
     store = store or get_store()
-    end_d = _parse_date(end_date, date.today())
-    last_dates = store.get_last_dates(symbols, "day")
+    end_d = _target_trade_date(store, end_date)
+    pending_symbols, cached_results = _preclassify_cached_symbols(
+        symbols, end_d, "tushare", store
+    )
+    symbols = [
+        symbol for symbol in symbols
+        if symbol in cached_results or symbol in pending_symbols
+    ]
+    last_dates = store.get_last_dates(pending_symbols, "day")
     groups: dict[str, list[str]] = {}
-    results: dict[str, dict] = {}
+    results: dict[str, dict] = dict(cached_results)
 
-    for symbol in symbols:
+    for symbol in pending_symbols:
         last = last_dates.get(symbol)
-        if last is not None and last >= end_d:
-            entry = store.catalog.get(symbol, "day")
-            results[symbol] = {
-                "symbol": symbol,
-                "status": "up_to_date",
-                "bars": entry.rows if entry is not None else 0,
-                "end": str(last),
-                "new_bars": 0,
-                "source": "tushare",
-            }
-            continue
         start_d = (
             last + timedelta(days=1)
             if last is not None
@@ -414,120 +478,157 @@ def _update_symbols_tushare_batch(
             continue
         groups.setdefault(start_d.strftime("%Y%m%d"), []).append(symbol)
 
-    checkpoint = control or (lambda: None)
-    source_client = TushareSource(checkpoint=checkpoint)
     completed = 0
     total = len(symbols)
+    checkpoint = control or (lambda: None)
 
     def record(symbol: str, result: dict) -> None:
         nonlocal completed
         results[symbol] = result
         completed += 1
+        progress_status = result["status"]
+        if progress_status == "error" and result.get("error"):
+            progress_status = f"error:{str(result['error'])[:300]}"
         logger.info(
             f"[update] {symbol}: {result['status']} "
             f"(+{result.get('new_bars', 0)})"
         )
         if on_progress:
-            on_progress(completed, total, symbol, result["status"])
+            on_progress(completed, total, symbol, progress_status)
         checkpoint()
 
     for symbol in symbols:
         if symbol in results:
             record(symbol, results[symbol])
 
-    for start, group in groups.items():
+    if not groups:
+        return [results[symbol] for symbol in symbols]
+
+    def request_progress(api_name: str, done: int, request_total: int) -> None:
+        if on_progress:
+            on_progress(
+                completed,
+                total,
+                "TUSHARE",
+                f"downloading:{api_name} request {done}/{request_total}",
+            )
         checkpoint()
-        batch_error = ""
+
+    source_client = TushareSource(
+        checkpoint=checkpoint,
+        request_progress=request_progress,
+    )
+
+    def fetch_group_resilient(
+        group: list[str],
+        start: str,
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, str]]:
         try:
-            frames = source_client.fetch_daily_many(
-                group,
-                start,
-                end_d.strftime("%Y%m%d"),
+            return (
+                source_client.fetch_daily_many(
+                    group,
+                    start,
+                    end_d.strftime("%Y%m%d"),
+                ),
+                {},
             )
         except DataOperationCancelled:
             raise
         except Exception as exc:
-            frames = {}
-            batch_error = str(exc)
+            if len(group) <= 1:
+                return {}, {group[0]: str(exc)}
             logger.warning(
                 f"Tushare batch failed for {len(group)} symbols "
-                f"({start}-{end_d:%Y%m%d}): {exc}"
+                f"({start}-{end_d:%Y%m%d}), splitting: {exc}"
             )
+            middle = len(group) // 2
+            left_frames, left_errors = fetch_group_resilient(group[:middle], start)
+            right_frames, right_errors = fetch_group_resilient(group[middle:], start)
+            return {**left_frames, **right_frames}, {**left_errors, **right_errors}
 
-        def process(symbol: str) -> dict:
+    for start, group in groups.items():
+        for chunk in _chunks(group, _TUSHARE_UPDATE_CHUNK_SIZE):
             checkpoint()
-            frame = frames.get(symbol, pd.DataFrame())
-            if frame is None or frame.empty:
-                if fallback_sources:
-                    return update_symbol(
-                        symbol,
-                        str(end_d),
-                        source="tdx",
-                        recompute_indicators=recompute_indicators,
-                        fallback_sources=False,
-                        control=control,
-                    )
-                if batch_error:
-                    return {
-                        "symbol": symbol,
-                        "status": "error",
-                        "error": batch_error,
-                        "new_bars": 0,
-                        "source": "tushare",
-                    }
-                entry = store.catalog.get(symbol, "day")
-                return {
-                    "symbol": symbol,
-                    "status": "no_new_data",
-                    "bars": entry.rows if entry is not None else 0,
-                    "new_bars": 0,
-                    "source": "tushare",
-                }
-
-            entry = store.catalog.get(symbol, "day")
-            old_rows = entry.rows if entry is not None else 0
-            checkpoint()
-            combined = store.upsert_kline(
-                symbol,
-                frame,
-                freq="day",
-                source="tushare",
-                recompute_indicators=recompute_indicators,
+            logger.info(
+                f"Tushare update chunk: {len(chunk)} symbols "
+                f"({start}-{end_d:%Y%m%d})"
             )
-            return {
-                "symbol": symbol,
-                "status": "updated",
-                "bars": len(combined),
-                "end": str(combined["dt"].max()),
-                "new_bars": max(0, len(combined) - old_rows),
-                "source": "tushare",
-            }
+            frames, symbol_errors = fetch_group_resilient(chunk, start)
 
-        workers = max(1, min(int(max_workers), 8, len(group)))
-        if workers == 1:
-            for symbol in group:
-                record(symbol, process(symbol))
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                for symbol, future in bounded_futures(
-                    executor,
-                    group,
-                    process,
-                    max_pending=workers * 2,
-                ):
-                    try:
-                        result = future.result()
-                    except DataOperationCancelled:
-                        raise
-                    except Exception as exc:
-                        result = {
+            def process(symbol: str) -> dict:
+                checkpoint()
+                frame = frames.get(symbol, pd.DataFrame())
+                if frame is None or frame.empty:
+                    if fallback_sources:
+                        return update_symbol(
+                            symbol,
+                            str(end_d),
+                            source="tdx",
+                            recompute_indicators=recompute_indicators,
+                            fallback_sources=False,
+                            control=control,
+                        )
+                    if symbol in symbol_errors:
+                        return {
                             "symbol": symbol,
                             "status": "error",
-                            "error": str(exc),
+                            "error": symbol_errors[symbol],
                             "new_bars": 0,
                             "source": "tushare",
                         }
-                    record(symbol, result)
+                    entry = store.catalog.get(symbol, "day")
+                    return {
+                        "symbol": symbol,
+                        "status": "no_new_data",
+                        "bars": entry.rows if entry is not None else 0,
+                        "new_bars": 0,
+                        "source": "tushare",
+                    }
+
+                entry = store.catalog.get(symbol, "day")
+                old_rows = entry.rows if entry is not None else 0
+                checkpoint()
+                combined = store.upsert_kline(
+                    symbol,
+                    frame,
+                    freq="day",
+                    source="tushare",
+                    recompute_indicators=recompute_indicators,
+                )
+                return {
+                    "symbol": symbol,
+                    "status": "updated",
+                    "bars": len(combined),
+                    "end": str(combined["dt"].max()),
+                    "new_bars": max(0, len(combined) - old_rows),
+                    "source": "tushare",
+                }
+
+            workers = max(1, min(int(max_workers), 8, len(chunk)))
+            if workers == 1:
+                for symbol in chunk:
+                    record(symbol, process(symbol))
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    for symbol, future in bounded_futures(
+                        executor,
+                        chunk,
+                        process,
+                        max_pending=workers * 2,
+                    ):
+                        try:
+                            result = future.result()
+                        except DataOperationCancelled:
+                            raise
+                        except Exception as exc:
+                            result = {
+                                "symbol": symbol,
+                                "status": "error",
+                                "error": str(exc),
+                                "new_bars": 0,
+                                "source": "tushare",
+                            }
+                        record(symbol, result)
 
     return [results[symbol] for symbol in symbols]
 
@@ -581,7 +682,30 @@ def _update_all_concurrent(
 
 def fetch_all_a_symbols_tushare() -> list[dict]:
     """从 Tushare 获取全部 A 股上市股票列表。"""
-    return TushareSource().list_symbols()
+    rows = TushareSource().list_symbols()
+    rows = filter_a_share_rows(rows)
+    if rows:
+        try:
+            out_path = get_store().meta_path("symbols")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            pd.DataFrame(rows).to_parquet(out_path, index=False)
+        except Exception as exc:
+            logger.warning(f"failed to persist Tushare universe cache: {exc}")
+        return rows
+
+    try:
+        universe = get_store().get_universe()
+        if not universe.empty and "symbol" in universe.columns:
+            cached = filter_a_share_rows(universe.to_dict("records"))
+            if cached:
+                logger.warning(
+                    "Tushare stock_basic returned no symbols; using cached "
+                    f"universe with {len(cached)} symbols"
+                )
+                return cached
+    except Exception as exc:
+        logger.warning(f"failed to read cached universe after Tushare miss: {exc}")
+    return []
 
 
 def fetch_all_a_symbols_tdx() -> list[dict]:
@@ -645,8 +769,10 @@ def download_all_a(
 
     Returns: {"total": N, "success": N, "skipped": N, "failed": N, "errors": [...]}
     """
-    today = end_date or str(date.today())
-    start = start_date or str(date.today() - timedelta(days=365 * 3))
+    store = get_store()
+    target_end = _target_trade_date(store, end_date)
+    today = str(target_end)
+    start = start_date or str(target_end - timedelta(days=365 * 3))
 
     # tdx 无限流，减少延迟
     if source == "tdx" and delay >= 0.3:
@@ -658,15 +784,38 @@ def download_all_a(
             f"[download_all] source={source} 不支持线程并发，max_workers 从 {max_workers} 降为 1"
         )
 
-    symbols_info = symbols_info or fetch_all_a_symbols(source=source)
+    if symbols_info is None:
+        symbols_info = fetch_all_a_symbols(source=source)
+    normalized_symbols = [normalize(info["symbol"]) for info in symbols_info]
+    pending_symbols, cached_results = _preclassify_cached_symbols(
+        normalized_symbols, target_end, source, store
+    )
+    if cached_results:
+        logger.info(
+            f"[download_all] cache hit: {len(cached_results)} already up to {target_end}"
+        )
     total = len(symbols_info)
     success = skipped = failed = 0
     errors: list[str] = []
     consecutive_errors = 0
 
+    if not pending_symbols:
+        for completed, symbol in enumerate(normalized_symbols, start=1):
+            if on_progress:
+                on_progress(completed, total, symbol, "skipped")
+            if control:
+                control()
+        return {
+            "total": total,
+            "success": 0,
+            "skipped": total,
+            "failed": 0,
+            "errors": [],
+        }
+
     if source == "tushare":
         rows = _update_symbols_tushare_batch(
-            [normalize(info["symbol"]) for info in symbols_info],
+            normalized_symbols,
             end_date=today,
             max_workers=max_workers,
             recompute_indicators=recompute_indicators,
@@ -699,9 +848,6 @@ def download_all_a(
         sym = info["symbol"]
         if control:
             control()
-        last = get_store().get_last_date(sym, "day")
-        if last is not None and str(last) >= today:
-            return (sym, "skipped", None)
         try:
             r = update_symbol(
                 sym,
@@ -721,13 +867,28 @@ def download_all_a(
         except Exception as e:
             return (sym, "error", str(e))
 
+    pending_set = set(pending_symbols)
+    pending_info = [
+        {"symbol": symbol}
+        for symbol in normalized_symbols
+        if symbol in pending_set
+    ]
+
     if effective_workers > 1:
         # 并发模式：on_progress 在主线程的 as_completed 消费侧调用，与原契约一致
         with ThreadPoolExecutor(max_workers=effective_workers) as ex:
+            completed = 0
+            for symbol in normalized_symbols:
+                if symbol not in cached_results:
+                    continue
+                skipped += 1
+                completed += 1
+                if on_progress:
+                    on_progress(completed, total, symbol, "skipped")
             for i, (_, fut) in enumerate(
                 bounded_futures(
                     ex,
-                    symbols_info,
+                    pending_info,
                     _process,
                     max_pending=effective_workers * 2,
                 )
@@ -748,11 +909,19 @@ def download_all_a(
                 if status != "error":
                     consecutive_errors = 0
                 if on_progress:
-                    on_progress(i + 1, total, sym, status)
+                    on_progress(completed + i + 1, total, sym, status)
                 _check_consecutive_errors(consecutive_errors, source, errors)
     else:
         # 串行模式：保留原 sleep 节流
-        for i, info in enumerate(symbols_info):
+        completed = 0
+        for symbol in normalized_symbols:
+            if symbol not in cached_results:
+                continue
+            skipped += 1
+            completed += 1
+            if on_progress:
+                on_progress(completed, total, symbol, "skipped")
+        for i, info in enumerate(pending_info):
             if control:
                 control()
             sym, status, err = _process(info)
@@ -768,7 +937,7 @@ def download_all_a(
             if status != "error":
                 consecutive_errors = 0
             if on_progress:
-                on_progress(i + 1, total, sym, "done" if status != "skipped" else "skipped")
+                on_progress(completed + i + 1, total, sym, "done" if status != "skipped" else "skipped")
             _check_consecutive_errors(consecutive_errors, source, errors)
             if delay > 0 and status != "skipped":
                 time.sleep(delay)

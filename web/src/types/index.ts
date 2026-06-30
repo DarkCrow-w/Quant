@@ -330,6 +330,7 @@ export interface ServerFrame {
   agent?: string;
   content?: string;
   tool?: string;
+  tool_call_id?: string;
   input?: Record<string, unknown>;
   data?: Record<string, unknown>;
   usage?: Record<string, unknown>;

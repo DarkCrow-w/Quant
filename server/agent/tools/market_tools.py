@@ -79,6 +79,7 @@ def get_kline_data_tool(
     start_date: str,
     end_date: str,
     use_latest: bool = True,
+    lookback: int | None = None,
 ) -> str:
     """获取股票 K 线数据（日线 OHLCV）。
 
@@ -87,6 +88,7 @@ def get_kline_data_tool(
         start_date: 开始日期，格式 YYYY-MM-DD
         end_date: 结束日期，格式 YYYY-MM-DD
         use_latest: 默认 true，将结束日期扩展到本地最新交易日；历史截面分析时设为 false
+        lookback: 可选，返回最近 N 根日线。用户说“最近20个交易日/最近60根K线”时必须设置。
 
     Returns:
         K 线数据的 JSON 字符串，包含日期、开高低收、成交量
@@ -94,11 +96,16 @@ def get_kline_data_tool(
     code, resolved = _resolve_symbol(symbol)
     effective_end = _effective_end_date(code, end_date, use_latest)
     bars = get_kline(code, start_date, effective_end)
+    if lookback is not None:
+        lookback = max(1, min(int(lookback), 240))
+    returned_bars = bars[-lookback:] if lookback else bars[-60:]
 
     output = {
         "symbol": code,
         "name": resolved.get("name", ""),
-        "bar_count": len(bars),
+        "bar_count": len(returned_bars),
+        "total_bars": len(bars),
+        "lookback": lookback,
         "requested_date_range": f"{start_date} ~ {end_date}",
         "effective_date_range": f"{start_date} ~ {effective_end}",
         "data_as_of": bars[-1].dt if bars else None,
@@ -112,15 +119,15 @@ def get_kline_data_tool(
                 "close": b.close,
                 "volume": b.volume,
             }
-            for b in bars[-60:]  # 最多返回最近 60 条，避免过多 token
+            for b in returned_bars
         ],
     }
-    if bars:
-        closes = [b.close for b in bars]
+    if returned_bars:
+        closes = [b.close for b in returned_bars]
         output["summary"] = {
             "latest_close": closes[-1],
-            "period_high": max(b.high for b in bars),
-            "period_low": min(b.low for b in bars),
+            "period_high": max(b.high for b in returned_bars),
+            "period_low": min(b.low for b in returned_bars),
             "period_return": round((closes[-1] - closes[0]) / closes[0], 4) if closes[0] > 0 else 0,
         }
     return json.dumps(output, ensure_ascii=False, default=str)

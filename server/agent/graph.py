@@ -22,7 +22,6 @@ AGENT_MODES = {
     "backtest": {"label": "策略回测", "agent": "backtest_agent"},
 }
 
-
 @lru_cache(maxsize=1)
 def _get_checkpointer() -> MemorySaver:
     return MemorySaver()

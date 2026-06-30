@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from collections.abc import Callable, Iterable
 
 import pandas as pd
+import requests
 from loguru import logger
 
 from quant.config import get_settings
@@ -17,11 +19,82 @@ ADJ_FIELDS = "ts_code,trade_date,adj_factor"
 TUSHARE_ROW_LIMIT = 6000
 TUSHARE_SAFE_ROWS = 5500
 TUSHARE_MAX_CODES_PER_REQUEST = 400
+TUSHARE_PRO_URL = "https://api.tushare.pro"
+_RATE_LIMIT_RE = re.compile(r"(\d+)\s*次\s*/\s*分钟")
 
 _PRO_CLIENT = None
 _PRO_CLIENT_LOCK = threading.Lock()
 _REQUEST_LOCK = threading.Lock()
 _LAST_REQUEST_AT = 0.0
+
+
+class TushareRateLimitError(RuntimeError):
+    """Tushare rejected the request because the account request quota was hit."""
+
+    def __init__(self, message: str, limit_per_minute: int | None = None) -> None:
+        super().__init__(message)
+        self.limit_per_minute = limit_per_minute
+
+
+class _HttpTushareClient:
+    """Small Tushare Pro HTTP client with explicit request timeouts."""
+
+    def __init__(
+        self,
+        token: str,
+        timeout: float,
+        session: requests.Session | None = None,
+    ) -> None:
+        self.token = token
+        self.timeout = timeout
+        self.session = session or requests.Session()
+
+    def query(self, api_name: str, **kwargs) -> pd.DataFrame:
+        if not self.token:
+            raise RuntimeError("TUSHARE_TOKEN is not configured")
+        fields = str(kwargs.pop("fields", "") or "")
+        payload = {
+            "api_name": api_name,
+            "token": self.token,
+            "params": kwargs,
+            "fields": fields,
+        }
+        try:
+            response = self.session.post(
+                TUSHARE_PRO_URL,
+                json=payload,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except requests.Timeout as exc:
+            raise TimeoutError(
+                f"Tushare {api_name} request timed out after {self.timeout:g}s"
+            ) from exc
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Tushare {api_name} HTTP request failed: {exc}") from exc
+
+        body = response.json()
+        code = int(body.get("code", -1))
+        if code != 0:
+            message = str(body.get("msg") or body.get("message") or "unknown error")
+            match = _RATE_LIMIT_RE.search(message)
+            if match or "频率超限" in message or "rate limit" in message.lower():
+                limit = int(match.group(1)) if match else None
+                raise TushareRateLimitError(
+                    f"Tushare {api_name} rate limited: {message} (code={code})",
+                    limit_per_minute=limit,
+                )
+            raise RuntimeError(f"Tushare {api_name} failed: {message} (code={code})")
+        data = body.get("data") or {}
+        fields = data.get("fields") or []
+        items = data.get("items") or []
+        return pd.DataFrame(items, columns=fields)
+
+    def __getattr__(self, api_name: str):
+        def call(**kwargs) -> pd.DataFrame:
+            return self.query(api_name, **kwargs)
+
+        return call
 
 
 def _get_pro():
@@ -30,9 +103,11 @@ def _get_pro():
         return _PRO_CLIENT
     with _PRO_CLIENT_LOCK:
         if _PRO_CLIENT is None:
-            import tushare as ts
-
-            _PRO_CLIENT = ts.pro_api(get_settings().tushare.token)
+            settings = get_settings().tushare
+            _PRO_CLIENT = _HttpTushareClient(
+                token=settings.token,
+                timeout=settings.timeout,
+            )
     return _PRO_CLIENT
 
 
@@ -64,10 +139,12 @@ class TushareSource:
         request_interval: float | None = None,
         retries: int | None = None,
         checkpoint: Callable[[], None] | None = None,
+        request_progress: Callable[[str, int, int], None] | None = None,
     ) -> None:
         self._client = pro
         self._calendar_cache: dict[tuple[str, str], list[str]] = {}
         self._checkpoint = checkpoint or (lambda: None)
+        self._request_progress = request_progress
         settings = get_settings().tushare
         rpm = settings.rpm
         self._request_interval = (
@@ -76,6 +153,7 @@ class TushareSource:
             else 60.0 / rpm
         )
         self._retries = settings.retries if retries is None else max(0, retries)
+        self._timeout = settings.timeout
 
     @property
     def pro(self):
@@ -94,16 +172,44 @@ class TushareSource:
                         self._request_interval - (time.monotonic() - _LAST_REQUEST_AT),
                     )
                     if wait_s:
-                        time.sleep(wait_s)
+                        self._sleep_with_checkpoint(wait_s)
                     _LAST_REQUEST_AT = time.monotonic()
                 self._checkpoint()
                 result = getattr(self.pro, api_name)(**kwargs)
                 return result if result is not None else pd.DataFrame()
+            except TushareRateLimitError as exc:
+                if exc.limit_per_minute:
+                    self._request_interval = max(
+                        self._request_interval,
+                        60.0 / max(1, exc.limit_per_minute) * 1.15,
+                    )
+                if attempt >= self._retries:
+                    raise
+                cooldown = max(65.0, self._request_interval * 2)
+                logger.warning(
+                    f"Tushare {api_name} rate limited; waiting {cooldown:.1f}s "
+                    f"before retry {attempt + 1}/{self._retries}"
+                )
+                self._sleep_with_checkpoint(cooldown)
             except Exception:
                 if attempt >= self._retries:
                     raise
-                time.sleep(0.5 * (2**attempt))
+                self._sleep_with_checkpoint(0.5 * (2**attempt))
         return pd.DataFrame()
+
+    def _sleep_with_checkpoint(self, seconds: float) -> None:
+        deadline = time.monotonic() + max(0.0, seconds)
+        while True:
+            self._checkpoint()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(remaining, 0.25))
+
+    def _emit_request_progress(self, api_name: str, done: int, total: int) -> None:
+        if self._request_progress is None:
+            return
+        self._request_progress(api_name, done, total)
 
     def _open_dates(self, start: str, end: str) -> list[str]:
         cache_key = (start, end)
@@ -111,6 +217,7 @@ class TushareSource:
         if cached is not None:
             return cached
         try:
+            self._emit_request_progress("trade_cal", 0, 1)
             cal = self._query(
                 "trade_cal",
                 exchange="SSE",
@@ -119,6 +226,7 @@ class TushareSource:
                 is_open="1",
                 fields="cal_date",
             )
+            self._emit_request_progress("trade_cal", 1, 1)
             if cal is not None and not cal.empty:
                 dates = sorted(cal["cal_date"].astype(str).tolist())
                 self._calendar_cache[cache_key] = dates
@@ -170,7 +278,7 @@ class TushareSource:
                 f"Tushare {api_name}: date batches, {len(open_dates)} requests "
                 f"for {len(symbols)} symbols"
             )
-            for trade_date in open_dates:
+            for index, trade_date in enumerate(open_dates, start=1):
                 self._checkpoint()
                 frame = self._query(api_name, trade_date=trade_date, fields=fields)
                 if len(frame) >= TUSHARE_ROW_LIMIT:
@@ -180,13 +288,14 @@ class TushareSource:
                     )
                 if not frame.empty:
                     frames.append(frame[frame["ts_code"].isin(requested)])
+                self._emit_request_progress(api_name, index, len(open_dates))
         else:
             request_count = math.ceil(len(ts_codes) / batch_size)
             logger.info(
                 f"Tushare {api_name}: code batches, {request_count} requests "
                 f"for {len(symbols)} symbols"
             )
-            for offset in range(0, len(ts_codes), batch_size):
+            for index, offset in enumerate(range(0, len(ts_codes), batch_size), start=1):
                 self._checkpoint()
                 chunk = ts_codes[offset : offset + batch_size]
                 frames.extend(
@@ -194,6 +303,7 @@ class TushareSource:
                         api_name, chunk, start, end, fields
                     )
                 )
+                self._emit_request_progress(api_name, index, request_count)
 
         non_empty = [frame for frame in frames if frame is not None and not frame.empty]
         return pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()

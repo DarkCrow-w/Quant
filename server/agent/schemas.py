@@ -23,6 +23,7 @@ class ServerFrame(BaseModel):
     agent: str | None = None
     content: str | None = None
     tool: str | None = None
+    tool_call_id: str | None = None
     input: dict | None = None
     data: dict | None = None
     usage: dict | None = None

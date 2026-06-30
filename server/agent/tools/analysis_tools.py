@@ -46,6 +46,7 @@ def analyze_technicals_tool(
     start_date: str,
     end_date: str,
     use_latest: bool = True,
+    lookback: int | None = None,
 ) -> str:
     """计算股票的技术指标：MA5/MA10/MA20/MA60、KDJ、BBI、成交量均线。
 
@@ -54,15 +55,18 @@ def analyze_technicals_tool(
         start_date: 开始日期 YYYY-MM-DD
         end_date: 结束日期 YYYY-MM-DD
         use_latest: 默认 true，使用本地最新交易日；历史截面分析时设为 false
+        lookback: 可选，返回最近 N 个交易日的指标。用户说“最近20个交易日/最近60根K线”时必须设置。
 
     Returns:
-        技术指标摘要的 JSON 字符串（最近 10 个交易日的指标值）
+        技术指标摘要的 JSON 字符串（默认最近 10 个交易日，可由 lookback 调整）
     """
     code, resolved = _resolve_symbol(symbol)
     effective_end = _effective_end_date(code, end_date, use_latest)
     bars = get_kline(code, start_date, effective_end)
     if not bars:
         return json.dumps({"error": f"未找到 {code} 的数据"}, ensure_ascii=False)
+    if lookback is not None:
+        lookback = max(1, min(int(lookback), 120))
 
     closes = [b.close for b in bars]
     highs = [b.high for b in bars]
@@ -84,8 +88,8 @@ def analyze_technicals_tool(
     k_vals, d_vals, j_vals = _compute_kdj(highs, lows, closes)
     vol_ma5 = _compute_ma(volumes, 5)
 
-    # 返回最近 10 天的指标
-    n = min(10, len(bars))
+    # 返回用户指定窗口；未指定时控制在最近 10 天，避免工具结果过长。
+    n = min(lookback or 10, len(bars))
     recent = []
     for i in range(-n, 0):
         idx = len(bars) + i
@@ -127,6 +131,8 @@ def analyze_technicals_tool(
         "symbol": code,
         "name": resolved.get("name", ""),
         "total_bars": len(bars),
+        "returned_bars": n,
+        "lookback": lookback,
         "requested_date_range": f"{start_date} ~ {end_date}",
         "effective_date_range": f"{start_date} ~ {effective_end}",
         "data_as_of": bars[-1].dt,

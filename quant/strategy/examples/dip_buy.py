@@ -422,7 +422,7 @@ class SwingDipBuyStrategy(Strategy):
     def on_bar(self, ctx: Context) -> list[SignalEvent]:
         p = self.params
         lookback = p.get("lookback", 30)
-        entry_score = p.get("entry_score", 6)
+        entry_score = p.get("entry_score", 4)
         kdj_j_threshold = p.get("kdj_j_threshold", 18)
         rsi3_threshold = p.get("rsi3_threshold", 28)
         rsi6_threshold = p.get("rsi6_threshold", 32)
@@ -433,8 +433,8 @@ class SwingDipBuyStrategy(Strategy):
         reversal_pct = p.get("reversal_pct", 0.003)
         trend_floor_pct = p.get("trend_floor_pct", 0.08)
         stop_loss_pct = p.get("stop_loss_pct", 0.055)
-        take_profit_pct = p.get("take_profit_pct", 0.12)
-        second_profit_pct = p.get("second_profit_pct", 0.22)
+        take_profit_pct = p.get("take_profit_pct", 0.36)
+        second_profit_pct = p.get("second_profit_pct", 0.648)
         trailing_stop_pct = p.get("trailing_stop_pct", 0.08)
         bbi_break_days = p.get("bbi_break_days", 2)
         bbi_exit_band_pct = p.get("bbi_exit_band_pct", 0.015)

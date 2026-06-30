@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { App as AntdApp, ConfigProvider, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/layout/AppLayout';
@@ -17,8 +17,62 @@ const BacktestPage = lazy(() => import('./pages/BacktestPage'));
 const ScreeningPage = lazy(() => import('./pages/ScreeningPage'));
 const AgentPage = lazy(() => import('./pages/AgentPage'));
 
+const pageKeys = [
+  'dashboard',
+  'data',
+  'trading',
+  'research',
+  'strategy',
+  'factors',
+  'risk',
+  'backtest',
+  'screening',
+  'agent',
+] as const;
+
+type PageKey = typeof pageKeys[number];
+
+const pagePath: Record<PageKey, string> = {
+  dashboard: '/',
+  data: '/data',
+  trading: '/trading',
+  research: '/research',
+  strategy: '/strategy',
+  factors: '/factors',
+  risk: '/risk',
+  backtest: '/backtest',
+  screening: '/screening',
+  agent: '/agent',
+};
+
+const pageFromLocation = (): PageKey => {
+  if (typeof window === 'undefined') return 'dashboard';
+  const normalized = window.location.pathname.replace(/\/+$/, '') || '/';
+  const match = pageKeys.find((page) => pagePath[page] === normalized);
+  return match ?? 'dashboard';
+};
+
 export default function App() {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePageState] = useState<PageKey>(pageFromLocation);
+  const setActivePage = (page: string) => {
+    const nextPage = pageKeys.includes(page as PageKey)
+      ? (page as PageKey)
+      : 'dashboard';
+    setActivePageState(nextPage);
+    if (typeof window !== 'undefined') {
+      const nextPath = pagePath[nextPage];
+      if (window.location.pathname !== nextPath) {
+        window.history.pushState({ page: nextPage }, '', nextPath);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => setActivePageState(pageFromLocation());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const sidebar = activePage === 'backtest'
     ? <Sidebar />
     : activePage === 'screening'
