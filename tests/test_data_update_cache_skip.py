@@ -267,20 +267,77 @@ def test_tushare_whole_market_download_refreshes_remote_universe(tmp_path, monke
     monkeypatch.setattr(data_jobs, "get_store", lambda: store)
 
     def fake_fetch_all(source):
-        assert source == "tdx"
+        assert source == "tushare"
         return [
             {"symbol": "600000", "name": "cached", "market": "SH"},
             {"symbol": "000001", "name": "remote", "market": "SZ"},
             {"symbol": "000002", "name": "remote2", "market": "SZ"},
+            {"symbol": "301571", "name": "国科天成", "market": "SZ"},
+            {"symbol": "920001", "name": "BJ stock", "market": "BJ"},
         ]
 
     monkeypatch.setattr(data_jobs, "fetch_all_a_symbols", fake_fetch_all)
 
     symbols, origin = data_jobs._local_download_symbols("tushare")
 
-    assert origin == "remote:tdx"
-    assert symbols == ["600000", "000001", "000002"]
-    assert set(store.get_universe()["symbol"]) == {"600000", "000001", "000002"}
+    assert origin == "remote:tushare"
+    assert symbols == ["600000", "000001", "000002", "301571", "920001"]
+    assert set(store.get_universe()["symbol"]) == {
+        "600000",
+        "000001",
+        "000002",
+        "301571",
+        "920001",
+    }
+
+
+def test_download_target_keeps_all_a_share_prefixes_from_local_universe(tmp_path, monkeypatch):
+    store = DataStore(tmp_path / "store")
+    local = [
+        {"symbol": "600000", "name": "SH", "market": "SH"},
+        {"symbol": "301571", "name": "国科天成", "market": "SZ"},
+        {"symbol": "920001", "name": "BJ", "market": "BJ"},
+        {"symbol": "510300", "name": "ETF", "market": "SH"},
+    ]
+    repeats = [
+        {"symbol": f"{600000 + index:06d}", "name": f"local-{index}", "market": "SH"}
+        for index in range(1000)
+    ]
+    pd.DataFrame(local + repeats).to_parquet(store.meta_path("symbols"), index=False)
+    monkeypatch.setattr(data_jobs, "get_store", lambda: store)
+
+    symbols, origin = data_jobs._local_download_symbols("tushare")
+
+    assert origin == "symbols.parquet"
+    assert "301571" in symbols
+    assert "920001" in symbols
+    assert "510300" not in symbols
+
+
+def test_remote_universe_persist_merges_instead_of_dropping_existing_bj(tmp_path, monkeypatch):
+    store = DataStore(tmp_path / "store")
+    pd.DataFrame(
+        [
+            {"symbol": "920001", "name": "BJ", "market": "BJ"},
+            {"symbol": "301571", "name": "old", "market": "SZ"},
+        ]
+    ).to_parquet(store.meta_path("symbols"), index=False)
+    monkeypatch.setattr(data_jobs, "get_store", lambda: store)
+
+    data_jobs._persist_universe_rows(
+        [
+            {"symbol": "600000", "name": "SH", "market": "SH"},
+            {"symbol": "301571", "name": "国科天成", "market": "SZ"},
+        ]
+    )
+
+    universe = store.get_universe()
+    by_symbol = {
+        str(row["symbol"]).zfill(6): row
+        for row in universe.to_dict("records")
+    }
+    assert set(by_symbol) == {"920001", "301571", "600000"}
+    assert by_symbol["301571"]["name"] == "国科天成"
 
 
 def test_tushare_whole_market_download_uses_large_local_universe_without_remote_call(tmp_path, monkeypatch):
@@ -393,10 +450,12 @@ def test_tushare_download_job_resolves_small_universe_in_background(tmp_path, mo
 
     def fake_fetch_all(source):
         remote_started.set()
+        assert source == "tushare"
         assert allow_remote.wait(timeout=2)
         return [
             {"symbol": "600000", "name": "cached", "market": "SH"},
             {"symbol": "000001", "name": "remote", "market": "SZ"},
+            {"symbol": "920001", "name": "remote-bj", "market": "BJ"},
         ]
 
     class FakeTushareSource:
@@ -436,10 +495,10 @@ def test_tushare_download_job_resolves_small_universe_in_background(tmp_path, mo
 
     assert latest is not None
     assert latest["status"] == "completed"
-    assert latest["completed"] == 2
-    assert latest["result"]["universe_origin"] == "remote:tdx"
+    assert latest["completed"] == 3
+    assert latest["result"]["universe_origin"] == "remote:tushare"
     assert latest["result"]["skipped"] == 1
-    assert latest["result"]["success"] == 1
+    assert latest["result"]["success"] == 2
 
 
 def test_download_all_returns_immediately_when_all_targets_cached(tmp_path, monkeypatch):

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+import math
+from typing import Any
 
 from quant.data import INDICATORS, get_store
 from quant.data.schema import Freq, OHLCV_COLUMNS
@@ -70,7 +72,19 @@ def get_universe(market: str | None = None) -> list[dict]:
     df = get_store().get_universe(market=market)
     if df.empty:
         return []
-    return filter_a_share_rows(df.to_dict(orient="records"))
+    rows = filter_a_share_rows(df.to_dict(orient="records"))
+    return [
+        {key: _json_safe(value) for key, value in row.items()}
+        for row in rows
+    ]
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 def get_calendar(start: str | None = None, end: str | None = None) -> list[dict]:

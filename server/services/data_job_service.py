@@ -515,7 +515,7 @@ def _symbols_from_universe_rows(rows: list[dict]) -> list[str]:
     symbols = [
         str(item.get("symbol", "")).zfill(6)
         for item in rows
-        if is_a_share_symbol(str(item.get("symbol", "")), include_bj=False)
+        if is_a_share_symbol(str(item.get("symbol", "")), include_bj=True)
     ]
     return list(dict.fromkeys(symbols))
 
@@ -528,7 +528,18 @@ def _persist_universe_rows(rows: list[dict]) -> None:
     store = get_store()
     out_path = store.meta_path("symbols")
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_parquet(out_path, index=False)
+    incoming = pd.DataFrame(rows)
+    try:
+        existing = store.get_universe()
+    except Exception:
+        existing = pd.DataFrame()
+    if existing.empty or "symbol" not in existing.columns:
+        incoming.to_parquet(out_path, index=False)
+        return
+    combined = pd.concat([existing, incoming], ignore_index=True, sort=False)
+    combined["symbol"] = combined["symbol"].astype(str).str.zfill(6)
+    combined = combined.drop_duplicates("symbol", keep="last")
+    combined.to_parquet(out_path, index=False)
 
 
 def _local_universe_symbols() -> list[str]:
@@ -539,7 +550,7 @@ def _local_universe_symbols() -> list[str]:
     symbols = [
         str(symbol).zfill(6)
         for symbol in universe["symbol"].tolist()
-        if is_a_share_symbol(str(symbol), include_bj=False)
+        if is_a_share_symbol(str(symbol), include_bj=True)
     ]
     return list(dict.fromkeys(symbols))
 
@@ -559,24 +570,24 @@ def _local_download_symbols(source: DataSource) -> tuple[list[str], str]:
         if len(local_symbols) >= 1000:
             return local_symbols, "symbols.parquet"
         try:
-            symbols, origin = _remote_download_symbols("tdx")
-            if symbols:
-                return symbols, origin
-        except Exception as exc:
-            logger.warning(f"failed to refresh stable universe before tushare download: {exc}")
-        if local_symbols:
-            return local_symbols, "symbols.parquet"
-        try:
             symbols, origin = _remote_download_symbols(source)
             if symbols:
                 return symbols, origin
         except Exception as exc:
             logger.warning(f"failed to refresh tushare universe before download: {exc}")
+        if local_symbols:
+            return local_symbols, "symbols.parquet"
+        try:
+            symbols, origin = _remote_download_symbols("tdx")
+            if symbols:
+                return symbols, origin
+        except Exception as exc:
+            logger.warning(f"failed to refresh fallback TDX universe before download: {exc}")
 
     if len(local_symbols) >= 1000:
         return local_symbols, "symbols.parquet"
     try:
-        symbols, origin = _remote_download_symbols(source if source != "tushare" else "tdx")
+        symbols, origin = _remote_download_symbols(source)
         if symbols:
             return symbols, origin
     except Exception as exc:
